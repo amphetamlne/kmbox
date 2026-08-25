@@ -1,0 +1,40 @@
+usb_hid.c
+  s_177138d43c0b6b::t_37972eb19de8b5 2891-2895
+  s_177138d43c0b6b::t_61e27dc02208bb 580-587
+  s_177138d43c0b6b::t_facf15b4a77b1a 2554-2563,2565-2568,2910
+  s_177138d43c0b6b::t_28a2babccab782 214-223
+  s_177138d43c0b6b::t_31050608dd7b20 742-752,2889,2912,2993,3216,3219,3385
+  s_177138d43c0b6b::t_f1e4eea6108664 577-579
+  s_177138d43c0b6b::t_e43cc7e9eab5b6 588-590
+  s_177138d43c0b6b::t_fa2d1d1b02c126 2887-2888
+  s_177138d43c0b6b::t_06718a1ca52d9e 2890
+  s_177138d43c0b6b::t_b5b55eff9a3446 2896-2898,2907-2909
+  s_177138d43c0b6b::t_6c276fb62791df 2911
+  s_177138d43c0b6b::t_7a615c0504622e 2913
+  s_177138d43c0b6b::t_aee2dc1d770e6d 2990-2992
+  s_177138d43c0b6b::t_392fbac37d1196 2994
+  s_177138d43c0b6b::t_9d047b1e486b14 3213-3215
+  s_177138d43c0b6b::t_351e0d6be2eed4 3217-3218
+  s_177138d43c0b6b::t_47b163578ee6f0 3220
+  s_177138d43c0b6b::t_12ea9df75b5816 3382-3384
+  s_177138d43c0b6b::t_007e279bf0759e 3386
+  s_177138d43c0b6b::t_6b3999ddb50d0c 19,568-576,591,602-606,1283-1286,2307-2309,2873-2881,2899-2906,2985-2989,2998,3190-3195,3212,3362-3381,3392,3401-3424
+.idea/claudeCodeTabState.xml
+  s_177138d43c0b6b::t_c0233c40c8c8d2 10,13-14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "a21000b45eed6acf4a4c834e54ed3986a90f5d26",
+  "prompts": {},
+  "sessions": {
+    "s_177138d43c0b6b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "80d3b2b2-908e-4548-89db-56fbc5fdd9eb",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "龙超 <longchao@onerobot.com>"
+    }
+  }
+}
