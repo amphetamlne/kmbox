@@ -1,0 +1,19 @@
+docs/RAWHID-CONTROL.md
+  s_177138d43c0b6b::t_882ef21a8d5cde 1-189
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "6898b444f92ef4827da769949653e202c33da374",
+  "prompts": {},
+  "sessions": {
+    "s_177138d43c0b6b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "80d3b2b2-908e-4548-89db-56fbc5fdd9eb",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "龙超 <longchao@onerobot.com>"
+    }
+  }
+}
