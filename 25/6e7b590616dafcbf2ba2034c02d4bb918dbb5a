@@ -1,0 +1,144 @@
+.codegraph/.gitignore
+  h_fc70e22ca6c685 1-5
+.idea/.gitignore
+  h_fc70e22ca6c685 1-10
+.idea/claudeCodeTabState.xml
+  h_fc70e22ca6c685 1-19
+.idea/editor.xml
+  h_fc70e22ca6c685 1-254
+.idea/inspectionProfiles/Project_Default.xml
+  h_fc70e22ca6c685 1-41
+.idea/kmbox.iml
+  h_fc70e22ca6c685 1-2
+.idea/misc.xml
+  h_fc70e22ca6c685 1-7
+.idea/modules.xml
+  h_fc70e22ca6c685 1-8
+.idea/vcs.xml
+  h_fc70e22ca6c685 1-7
+CMakeLists.txt
+  h_fc70e22ca6c685 27-28,42-53
+README.zh-CN.md
+  h_fc70e22ca6c685 1-662
+boards/waveshare_rp2350_usb_a.h
+  h_fc70e22ca6c685 1-97
+tools/tmp/build_bridge.ps1
+  h_fc70e22ca6c685 1-43
+tools/tmp/build_kmbox.ps1
+  h_fc70e22ca6c685 1-42
+tools/tmp/build_picotool.ps1
+  h_fc70e22ca6c685 1-35
+tools/tmp/check_build_env.ps1
+  h_fc70e22ca6c685 1-18
+tools/tmp/check_build_env.sh
+  h_fc70e22ca6c685 1-16
+tools/tmp/check_clion_tools.ps1
+  h_fc70e22ca6c685 1-10
+tools/tmp/check_distro.sh
+  h_fc70e22ca6c685 1-8
+tools/tmp/check_env.sh
+  h_fc70e22ca6c685 1-45
+tools/tmp/check_gcc.ps1
+  h_fc70e22ca6c685 1-7
+tools/tmp/check_kmbox.ps1
+  h_fc70e22ca6c685 1-6
+tools/tmp/check_msvc.ps1
+  h_fc70e22ca6c685 1-18
+tools/tmp/check_project_state.ps1
+  h_fc70e22ca6c685 1-14
+tools/tmp/check_python.ps1
+  h_fc70e22ca6c685 1-19
+tools/tmp/check_python2.ps1
+  h_fc70e22ca6c685 1-27
+tools/tmp/check_usb.ps1
+  h_fc70e22ca6c685 1-7
+tools/tmp/check_win.ps1
+  h_fc70e22ca6c685 1-38
+tools/tmp/extract_pdf.ps1
+  h_fc70e22ca6c685 1-10
+tools/tmp/fetch_index.ps1
+  h_fc70e22ca6c685 1-7
+tools/tmp/find_host_compiler.ps1
+  h_fc70e22ca6c685 1-26
+tools/tmp/find_host_compiler2.ps1
+  h_fc70e22ca6c685 1-16
+tools/tmp/flash_bridge.ps1
+  h_fc70e22ca6c685 1-20
+tools/tmp/flash_kmbox.ps1
+  h_fc70e22ca6c685 1-28
+tools/tmp/grep_uf2.ps1
+  h_fc70e22ca6c685 1-10
+tools/tmp/parse_index.ps1
+  h_fc70e22ca6c685 1-21
+tools/tmp/pico_index.json
+  h_fc70e22ca6c685 1-15
+tools/tmp/setup_and_build.sh
+  h_fc70e22ca6c685 1-87
+tools/tmp/setup_win.ps1
+  h_fc70e22ca6c685 1-149
+tools/tmp/verify_device.ps1
+  h_fc70e22ca6c685 1-9
+tools/tmp/winget_search.ps1
+  h_fc70e22ca6c685 1-7
+tools/tmp/ws_demo/RP2350-USB-A/.gitignore
+  h_fc70e22ca6c685 1-5
+tools/tmp/ws_demo/RP2350-USB-A/CMakeLists.txt
+  h_fc70e22ca6c685 1-26
+tools/tmp/ws_demo/RP2350-USB-A/LICENSE
+  h_fc70e22ca6c685 1-21
+tools/tmp/ws_demo/RP2350-USB-A/README.md
+  h_fc70e22ca6c685 1-48
+tools/tmp/ws_demo/RP2350-USB-A/examples/CMakeLists.txt
+  h_fc70e22ca6c685 1-15
+tools/tmp/ws_demo/RP2350-USB-A/examples/arduino/device_info/device_info.ino
+  h_fc70e22ca6c685 1-203
+tools/tmp/ws_demo/RP2350-USB-A/examples/host_hid_to_device_cdc/CMakeLists.txt
+  h_fc70e22ca6c685 1-23
+tools/tmp/ws_demo/RP2350-USB-A/examples/host_hid_to_device_cdc/host_hid_to_device_cdc.c
+  h_fc70e22ca6c685 1-268
+tools/tmp/ws_demo/RP2350-USB-A/examples/host_hid_to_device_cdc/tusb_config.h
+  h_fc70e22ca6c685 1-101
+tools/tmp/ws_demo/RP2350-USB-A/examples/host_hid_to_device_cdc/usb_descriptors.c
+  h_fc70e22ca6c685 1-165
+tools/tmp/ws_demo/RP2350-USB-A/examples/pico_sdk_import.cmake
+  h_fc70e22ca6c685 1-62
+tools/tmp/ws_demo/RP2350-USB-A/examples/usb_device/CMakeLists.txt
+  h_fc70e22ca6c685 1-16
+tools/tmp/ws_demo/RP2350-USB-A/examples/usb_device/usb_device.c
+  h_fc70e22ca6c685 1-150
+tools/tmp/ws_demo/RP2350-USB-A/library.properties
+  h_fc70e22ca6c685 1-11
+tools/tmp/ws_demo/RP2350-USB-A/src/pio_usb.c
+  h_fc70e22ca6c685 1-458
+tools/tmp/ws_demo/RP2350-USB-A/src/pio_usb.h
+  h_fc70e22ca6c685 1-30
+tools/tmp/ws_demo/RP2350-USB-A/src/pio_usb_configuration.h
+  h_fc70e22ca6c685 1-47
+tools/tmp/ws_demo/RP2350-USB-A/src/pio_usb_device.c
+  h_fc70e22ca6c685 1-498
+tools/tmp/ws_demo/RP2350-USB-A/src/pio_usb_host.c
+  h_fc70e22ca6c685 1-1281
+tools/tmp/ws_demo/RP2350-USB-A/src/pio_usb_ll.h
+  h_fc70e22ca6c685 1-191
+tools/tmp/ws_demo/RP2350-USB-A/src/usb_crc.c
+  h_fc70e22ca6c685 1-64
+tools/tmp/ws_demo/RP2350-USB-A/src/usb_crc.h
+  h_fc70e22ca6c685 1-15
+tools/tmp/ws_demo/RP2350-USB-A/src/usb_definitions.h
+  h_fc70e22ca6c685 1-339
+tools/tmp/ws_demo/RP2350-USB-A/src/usb_rx.pio
+  h_fc70e22ca6c685 1-232
+tools/tmp/ws_demo/RP2350-USB-A/src/usb_tx.pio
+  h_fc70e22ca6c685 1-217
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "256e7b590616dafcbf2ba2034c02d4bb918dbb5a",
+  "prompts": {},
+  "humans": {
+    "h_fc70e22ca6c685": {
+      "author": "龙超 <longchao@onerobot.com>"
+    }
+  }
+}
