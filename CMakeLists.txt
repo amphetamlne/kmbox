@@ -24,8 +24,8 @@ if (EXISTS ${picoVscode})
     include(${picoVscode})
 endif()
 # ====================================================================================
-# Board selection: metro (Adafruit Metro RP2350) or pico2 (RP2350 only)
-set(PICO_BOARD adafruit_metro_rp2350 CACHE STRING "Board type")
+# Board selection: waveshare_rp2350_usb_a / adafruit_metro_rp2350 / pico2 (RP2350 only)
+set(PICO_BOARD waveshare_rp2350_usb_a CACHE STRING "Board type")
 
 # Tell the SDK where to find custom board headers (e.g. adafruit_metro_rp2350.h)
 set(PICO_BOARD_HEADER_DIRS ${CMAKE_CURRENT_LIST_DIR}/boards)
@@ -39,6 +39,18 @@ if(PICO_BOARD STREQUAL "adafruit_metro_rp2350")
     set(NEOPIXEL_PIN 25 CACHE STRING "NeoPixel data pin")
     set(NEOPIXEL_POWER_PIN 255 CACHE STRING "NeoPixel power pin (255=not used)")
     message(STATUS "Configuring for Adafruit Metro RP2350 - USB Host on GPIO32/33")
+elseif(PICO_BOARD STREQUAL "waveshare_rp2350_usb_a")
+    # Waveshare RP2350-USB-A (RP2350A, GPIO0-29 only):
+    # bottom USB-A socket D+=GPIO12 / D-=GPIO13, VBUS hardwired to VSYS
+    # (no 5V enable GPIO -> use a harmless free internal GPIO),
+    # WS2812 on GPIO16, no discrete LED -> free internal GPIO.
+    set(USB_HOST_DP_PIN 12 CACHE STRING "USB Host D+ pin")
+    set(USB_HOST_DM_PIN 13 CACHE STRING "USB Host D- pin")
+    set(USB_HOST_5V_PIN 15 CACHE STRING "USB Host 5V power pin (dummy, VBUS always on)")
+    set(LED_PIN 17 CACHE STRING "Status LED pin (dummy, no LED on board)")
+    set(NEOPIXEL_PIN 16 CACHE STRING "NeoPixel data pin")
+    set(NEOPIXEL_POWER_PIN 255 CACHE STRING "NeoPixel power pin (255=not used)")
+    message(STATUS "Configuring for Waveshare RP2350-USB-A - USB Host on GPIO12/13")
 else()
     # Default: Pico/Pico2 with common GPIO16/17 for PIO USB
     set(USB_HOST_DP_PIN 16 CACHE STRING "USB Host D+ pin")
