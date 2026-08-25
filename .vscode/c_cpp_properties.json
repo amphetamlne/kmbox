@@ -4,18 +4,18 @@
             "name": "Pico",
             "includePath": [
                 "${workspaceFolder}/**",
-                "${userHome}/.pico-sdk/sdk/2.1.1/**"
+                "${userHome}/.pico-sdk/sdk/2.2.0-fresh/**"
             ],
             "forcedInclude": [
-                "${userHome}/.pico-sdk/sdk/2.1.1/src/common/pico_base_headers/include/pico.h",
-                "${workspaceFolder}/build/generated/pico_base/pico/config_autogen.h"
+                "${userHome}/.pico-sdk/sdk/2.2.0-fresh/src/common/pico_base_headers/include/pico.h",
+                "${workspaceFolder}/build-metro/generated/pico_base/pico/config_autogen.h"
             ],
             "defines": [],
-            "compilerPath": "${userHome}/.pico-sdk/toolchain/14_2_Rel1/bin/arm-none-eabi-gcc",
-            "compileCommands": "${workspaceFolder}/build/compile_commands.json",
+            "compilerPath": "C:/Users/woan/.pico-sdk/toolchain/bin/arm-none-eabi-gcc.exe",
+            "compileCommands": "${workspaceFolder}/build-metro/compile_commands.json",
             "cStandard": "c17",
             "cppStandard": "c++14",
-            "intelliSenseMode": "linux-gcc-arm"
+            "intelliSenseMode": "windows-gcc-arm"
         }
     ],
     "version": 4

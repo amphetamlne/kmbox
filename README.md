@@ -79,6 +79,10 @@ PIOKMbox turns an RP2350 board into a transparent man-in-the-middle USB HID devi
 
 **Dual Adafruit Metro RP2350 + ILI9341 Display**
 
+> **Alternative board:** Waveshare RP2350-USB-A is also supported as the main KMBox board
+> (`-DPICO_BOARD=waveshare_rp2350_usb_a`). See [`docs/WAVESHARE-RP2350-USB-A.md`](docs/WAVESHARE-RP2350-USB-A.md)
+> for the pin mapping, Windows build/flash guide, and the R13 hot-plug note.
+
 #### Board 1: USB Proxy (Main KMBox)
 
 | Item      | Detail                                        |
