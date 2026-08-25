@@ -1,0 +1,26 @@
+.idea/vcs.xml
+  h_fc70e22ca6c685 5
+.vscode/c_cpp_properties.json
+  h_fc70e22ca6c685 7,10-11,14-15,18
+README.md
+  h_fc70e22ca6c685 82-85
+docs/WAVESHARE-RP2350-USB-A.md
+  h_fc70e22ca6c685 1-155
+tools/build_kmbox_windows.ps1
+  h_fc70e22ca6c685 1-62
+tools/flash_kmbox_windows.ps1
+  h_fc70e22ca6c685 1-41
+tools/tmp/check_syntax.ps1
+  h_fc70e22ca6c685 1-15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "dfe58d9c10963ec6f9ef6bf6f834dd53b719949d",
+  "prompts": {},
+  "humans": {
+    "h_fc70e22ca6c685": {
+      "author": "龙超 <longchao@onerobot.com>"
+    }
+  }
+}
