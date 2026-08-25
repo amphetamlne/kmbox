@@ -7,9 +7,11 @@
           <value>
             <TabSessionState>
               <option name="provider" value="claude" />
+              <option name="sessionId" value="80d3b2b2-908e-4548-89db-56fbc5fdd9eb" />
               <option name="cwd" value="D:\Project\c++\kmbox" />
               <option name="model" value="claude-sonnet-5" />
-              <option name="permissionMode" value="default" />
+              <option name="permissionMode" value="bypassPermissions" />
+              <option name="reasoningEffort" value="medium" />
             </TabSessionState>
           </value>
         </entry>

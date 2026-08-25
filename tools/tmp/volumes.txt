@@ -1,0 +1,3 @@
+C: | Windows-SSD | type=3 | size=429497774080
+D: | Data | type=3 | size=592323801088
+E: | RP2350 | type=2 | size=134066176

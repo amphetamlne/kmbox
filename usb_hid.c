@@ -16,6 +16,7 @@
 #include "humanization_fpu.h"   // Include for tremor generation
 #include "xbox_gip.h"           // Xbox mode flag
 #include "xbox_device.h"        // Xbox device descriptors
+#include "rawhid_control.h"     // Vendor RawHID control interface (SmartUniversalMouse)
 #include <string.h>             // For strcpy, strlen, memset
 #include <math.h>                // For sqrtf, roundf
 #include "pico/rand.h"           // For get_rand_32() hardware TRNG
@@ -209,6 +210,16 @@ static mirrored_interface_t mirrored_itfs[MAX_DEVICE_HID_INTERFACES];
 static uint8_t mirrored_itf_count = 0;      // Active mirrored interfaces
 static uint8_t expected_hid_itf_count = 0;   // Expected from config descriptor
 static uint8_t mounted_hid_itf_count = 0;    // Mounted so far
+
+// mirrored_itf_count value that was active the last time the USB host
+// actually (re)enumerated our device. rebuild_configuration_descriptor()
+// changes interface topology (and therefore the RawHID control interface's
+// instance index, see usbhid_get_rawhid_instance()) on every mouse
+// attach/detach, but re-enumeration used to be triggered only when the
+// cloned VID/PID changed. Unplugging and replugging the SAME mouse keeps
+// VID/PID identical, so Windows kept a stale interface layout while the
+// firmware served a different one -> Code 10 on the RawHID interface.
+static uint8_t last_enumerated_mirrored_itf_count = 0;
 
 // Which device-side HID instance carries the composite descriptor (keyboard +
 // mouse + consumer).  All mouse/keyboard/consumer reports must be sent on this
@@ -554,6 +565,30 @@ const uint8_t desc_hid_report[] = {
     TUD_HID_REPORT_DESC_MOUSE(HID_REPORT_ID(REPORT_ID_MOUSE)),
     TUD_HID_REPORT_DESC_CONSUMER(HID_REPORT_ID(REPORT_ID_CONSUMER_CONTROL))};
 
+// Vendor RawHID control interface report descriptor (SmartUniversalMouse
+// protocol).  Usage Page 0xFFC0 / Usage 0x0C00 lets the PC client pick this
+// interface unambiguously via hidapi enumeration.  No report IDs: raw
+// 64-byte Input + Output reports.
+static const uint8_t desc_rawhid_control[] = {
+    0x06, 0xC0, 0xFF,  // Usage Page (Vendor Defined 0xFFC0)
+    0x0A, 0x00, 0x0C,  // Usage (0x0C00)
+    0xA1, 0x01,        // Collection (Application)
+    0x15, 0x00,        //   Logical Minimum (0)
+    0x26, 0xFF, 0x00,  //   Logical Maximum (255)
+    0x75, 0x08,        //   Report Size (8)
+    0x95, 0x40,        //   Report Count (64)
+    0x09, 0x01,        //   Usage (0x01) — required: every non-constant (Var)
+                       //   main item needs its own Usage, or Windows'
+                       //   HID parser rejects the whole interface with
+                       //   Code 10 ("declared non-constant main item has
+                       //   no corresponding usage").
+    0x81, 0x02,        //   Input (Data, Var, Abs)
+    0x95, 0x40,        //   Report Count (64)
+    0x09, 0x02,        //   Usage (0x02) — same requirement for Output
+    0x91, 0x02,        //   Output (Data, Var, Abs)
+    0xC0               // End Collection
+};
+
 static uint8_t desc_hid_report_runtime[HID_DESC_BUF_SIZE];
 static size_t desc_hid_runtime_len = 0;
 static bool desc_hid_runtime_valid = false;
@@ -563,6 +598,11 @@ static uint8_t host_mouse_desc[HID_DESC_BUF_SIZE];
 static size_t host_mouse_desc_len = 0;
 static bool host_mouse_has_report_id = false;
 static uint8_t host_mouse_report_id = 0;
+
+// Descriptor generation counter — bumped on every output descriptor rebuild
+// (mouse attach/detach) so the RawHID control client can detect layout
+// changes via heartbeat/META responses.
+static uint16_t mouse_desc_generation = 0;
 
 // --- Raw report forwarding for gaming mice ---
 // When we clone the host mouse's HID report descriptor, we must send reports
@@ -699,6 +739,17 @@ static void reset_device_string_descriptors(void) {
     // Rebuild config descriptor with defaults
     build_runtime_hid_report_with_mouse(NULL, 0);
     rebuild_configuration_descriptor();
+
+    // Interface topology just collapsed back to the default layout. If the
+    // host had actually enumerated a non-default (mirrored) layout, force a
+    // re-enumeration even though the cloned VID/PID is unchanged — otherwise
+    // Windows keeps the stale interface count and the RawHID control
+    // interface (instance index depends on mirrored_itf_count) gets served
+    // a mismatched report descriptor on the next mount, failing with Code 10.
+    if (last_enumerated_mirrored_itf_count != 0) {
+        force_usb_reenumeration();
+    }
+    last_enumerated_mirrored_itf_count = 0;
 }
 
 //--------------------------------------------------------------------+
@@ -1229,6 +1280,10 @@ static size_t strip_vendor_collections(const uint8_t *src, size_t src_len,
 
 static void build_runtime_hid_report_with_mouse(const uint8_t *mouse_desc, size_t mouse_len)
 {
+    // Output descriptor content changes — bump generation so the RawHID
+    // control client re-negotiates its injection layout.
+    mouse_desc_generation++;
+
     // Build the composite HID report descriptor:
     //   Keyboard (report ID N) + Mouse (report ID M) + Consumer Control (report ID P)
     //
@@ -2249,6 +2304,9 @@ void tud_umount_cb(void)
     // Track device unmount as potential error condition
     usb_error_tracker.consecutive_device_errors++;
 
+    // Clear RawHID control protocol state (handshake, forced buttons, queue)
+    rawhid_control_reset();
+
     neopixel_update_status();
 }
 
@@ -2493,8 +2551,21 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, const uint8_t *desc_re
         }
         rebuild_configuration_descriptor();
 
-        // Trigger re-enumeration (only fires if VID/PID actually changed)
+        // Re-enumerate if either the cloned VID/PID changed, or the
+        // interface topology changed while VID/PID stayed the same (e.g.
+        // the same mouse was unplugged and replugged). Without the latter
+        // check, Windows keeps a stale interface layout from before the
+        // disconnect and the RawHID control interface — whose instance
+        // index shifts with mirrored_itf_count — ends up served a
+        // mismatched report descriptor, failing with Code 10.
+        bool vid_pid_changed = (attached_vid != vid || attached_pid != pid);
+        bool topology_changed = (mirrored_itf_count != last_enumerated_mirrored_itf_count);
+
         set_attached_device_vid_pid(vid, pid);
+        if (topology_changed && !vid_pid_changed) {
+            force_usb_reenumeration();
+        }
+        last_enumerated_mirrored_itf_count = mirrored_itf_count;
     }
 
     neopixel_update_status();
@@ -2799,10 +2870,46 @@ void tuh_hid_set_report_complete_cb(uint8_t dev_addr, uint8_t instance, uint8_t 
     (void)len;
 }
 
+// ---- RawHID control interface diagnostics (排查 MI_01 Code 10 用) ----
+// 统计 host 对控制接口的实际请求次数，可通过 MI_00 键盘接口
+// GET_REPORT(id=1) 读回（见下方诊断分支）。问题解决后可整段删除。
+static volatile uint16_t rawhid_diag_ctrl_report_cb_calls = 0; // GET_DESCRIPTOR(report) for ctrl itf
+static volatile uint16_t rawhid_diag_itf0_report_cb_calls = 0; // GET_DESCRIPTOR(report) for itf0
+static volatile uint16_t rawhid_diag_ctrl_set_report_calls = 0;
+static volatile uint16_t rawhid_diag_ctrl_get_report_calls = 0;
+static volatile uint16_t rawhid_diag_itf0_set_report_calls = 0; // 其他实例的 SET_REPORT（验证探针用）
+
 // HID device callbacks with improved validation
 uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_t report_type, uint8_t *buffer, uint16_t reqlen)
 {
     if (instance >= MAX_DEVICE_HID_INTERFACES || !buffer || reqlen == 0) return 0;
+
+    if (instance == usbhid_get_rawhid_instance()) {
+        rawhid_diag_ctrl_get_report_calls++;
+    }
+
+    // 诊断通道：通过 itf0（无镜像时=独立键鼠接口，有镜像时=镶镜鼠标接口）
+    // 的 GET_REPORT(id=0xAA) 回传 RawHID 控制接口的状态，用于定位 Windows
+    // MI_01 Code 10。用 0xAA 而非 1，避免和真实的 REPORT_ID_KEYBOARD(1)
+    // 冲突（镶镜模式下 itf0 是键盘+鼠标+消费者控制的复合描述符）。
+    if (!g_xbox_mode && instance == 0 && report_id == 0xAA) {
+        uint16_t n = (reqlen < 8) ? reqlen : 8;
+        memset(buffer, 0, reqlen);
+        if (n == 8) {
+            buffer[0] = 0xD1;  // magic
+            buffer[1] = (uint8_t)(rawhid_diag_ctrl_report_cb_calls & 0xFF);
+            buffer[2] = usbhid_get_rawhid_instance();
+            buffer[3] = mirrored_itf_count;
+            buffer[4] = (uint8_t)((desc_config_runtime_valid ? 1u : 0u) |
+                                  (g_xbox_mode ? 2u : 0u) |
+                                  ((rawhid_diag_ctrl_set_report_calls > 0) ? 4u : 0u) |
+                                  ((rawhid_diag_itf0_set_report_calls > 0) ? 8u : 0u));
+            buffer[5] = (uint8_t)(rawhid_diag_ctrl_get_report_calls & 0xFF);
+            buffer[6] = (uint8_t)(rawhid_diag_itf0_report_cb_calls & 0xFF);
+            buffer[7] = 0xA5;  // end magic
+        }
+        return n;
+    }
 
     // Real passthrough for vendor/feature/input GET_REPORT. Logitech G Hub,
     // Razer Synapse, etc. use this for identity, battery, DPI and profile
@@ -2875,9 +2982,20 @@ uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id, hid_report_t
 
 void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_t report_type, const uint8_t *buffer, uint16_t bufsize)
 {
+    // Vendor RawHID control interface — SmartUniversalMouse protocol frames
+    // (legacy 8-byte packets and A5 5A extension frames).  Windows hidapi
+    // delivers these as control SET_REPORT; interrupt OUT also lands here.
+    if (!g_xbox_mode && instance == usbhid_get_rawhid_instance() &&
+        buffer != NULL && bufsize > 0) {
+        rawhid_diag_ctrl_set_report_calls++;
+        rawhid_control_handle_output(buffer, bufsize);
+        return;
+    }
+
     // Handle keyboard LED output reports (caps lock, etc.)
     if (report_type == HID_REPORT_TYPE_OUTPUT && report_id == runtime_kbd_report_id)
     {
+        rawhid_diag_itf0_set_report_calls++;
         if (buffer == NULL || bufsize < MIN_BUFFER_SIZE) return;
 
         uint8_t const kbd_leds = buffer[0];
@@ -3069,8 +3187,12 @@ uint8_t const * tud_descriptor_device_cb(void)
         // Clone VID/PID from host device
         .idVendor           = (get_attached_vid() != 0) ? get_attached_vid() : USB_VENDOR_ID,
         .idProduct          = (get_attached_pid() != 0) ? get_attached_pid() : USB_PRODUCT_ID,
-        // Clone device revision from host
-        .bcdDevice          = host_device_info.valid ? host_device_info.bcdDevice : 0x0100,
+        // Clone device revision from host.
+        // Add a small fixed delta so Windows does not reuse the descriptor
+        // cache of the physical device / older firmware builds that share
+        // the same VID/PID — otherwise our extra RawHID control interface
+        // would never appear (stale config descriptor cache).
+        .bcdDevice          = (uint16_t)((host_device_info.valid ? host_device_info.bcdDevice : 0x0100) + RAWHID_BCD_DEVICE_DELTA),
 
         .iManufacturer      = 0x01,
         .iProduct           = 0x02,
@@ -3087,6 +3209,15 @@ uint8_t const * tud_descriptor_device_cb(void)
 // Other instances return verbatim cloned descriptors from the host device.
 uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance)
 {
+    // Vendor RawHID control interface (appended after the mirrored ones)
+    if (!g_xbox_mode && instance == usbhid_get_rawhid_instance()) {
+        rawhid_diag_ctrl_report_cb_calls++;
+        return desc_rawhid_control;
+    }
+    if (instance == 0) {
+        rawhid_diag_itf0_report_cb_calls++;
+    }
+
     // Multi-interface mode: return the correct descriptor for each instance
     if (mirrored_itf_count > 0 && instance < mirrored_itf_count && mirrored_itfs[instance].active) {
         if (mirrored_itfs[instance].is_mouse) {
@@ -3228,18 +3359,67 @@ static void rebuild_configuration_descriptor(void) {
         pos += written;
     }
 
+    // Append the vendor RawHID control interface (SmartUniversalMouse
+    // protocol) after the mirrored interfaces.  Interface number and
+    // endpoint addresses continue the sequence used above.
+    //
+    // NOTE: IN endpoint only — mirrors the Arduino RawHID reference
+    // (NicoHood HID-Project).  Output reports arrive via control
+    // SET_REPORT (Windows hidapi writes always use that path); declaring
+    // an interrupt OUT endpoint here made Windows hidusb fail the
+    // interface with Code 10.
+    uint8_t total_itfs = num_itfs;
+    uint16_t ctrl_written = write_hid_interface_desc(
+        &desc_configuration_runtime[pos], DESC_CONFIG_RUNTIME_MAX - pos,
+        num_itfs,                    // bInterfaceNumber
+        0, HID_ITF_PROTOCOL_NONE,    // vendor, no boot protocol
+        sizeof(desc_rawhid_control),
+        0x81 + num_itfs,             // EP IN address continues the sequence
+        CFG_TUD_HID_EP_BUFSIZE,
+        HID_POLLING_INTERVAL_MS,
+        false, 0                     // no interrupt OUT endpoint
+    );
+    if (ctrl_written > 0) {
+        pos += ctrl_written;
+        total_itfs = (uint8_t)(num_itfs + 1);
+    }
+
     // Fill config descriptor header (first 9 bytes)
     desc_configuration_runtime[0] = 9;                          // bLength
     desc_configuration_runtime[1] = TUSB_DESC_CONFIGURATION;    // bDescriptorType
     desc_configuration_runtime[2] = (uint8_t)(pos & 0xFF);      // wTotalLength low
     desc_configuration_runtime[3] = (uint8_t)((pos >> 8) & 0xFF); // wTotalLength high
-    desc_configuration_runtime[4] = num_itfs;                   // bNumInterfaces
+    desc_configuration_runtime[4] = total_itfs;                 // bNumInterfaces
     desc_configuration_runtime[5] = 1;                          // bConfigurationValue
     desc_configuration_runtime[6] = 0;                          // iConfiguration
     desc_configuration_runtime[7] = cfg_attributes;             // bmAttributes
     desc_configuration_runtime[8] = cfg_max_power;              // bMaxPower
 
     desc_config_runtime_valid = true;
+}
+
+//--------------------------------------------------------------------+
+// RawHID control interface accessors (used by rawhid_control.c)
+//--------------------------------------------------------------------+
+
+uint8_t usbhid_get_rawhid_instance(void)
+{
+    // The control interface is appended after the mirrored interfaces, so
+    // its device-side instance index equals the mirrored interface count.
+    uint8_t inst = (mirrored_itf_count > 0) ? mirrored_itf_count : 1;
+    if (inst >= CFG_TUD_HID) inst = CFG_TUD_HID - 1;
+    return inst;
+}
+
+const uint8_t *usbhid_get_mouse_desc(size_t *len)
+{
+    if (len != NULL) *len = host_mouse_desc_len;
+    return (host_mouse_desc_len > 0) ? host_mouse_desc : NULL;
+}
+
+uint16_t usbhid_get_mouse_desc_generation(void)
+{
+    return mouse_desc_generation;
 }
 
 // Parse host configuration descriptor to extract ALL HID interfaces and their endpoints.

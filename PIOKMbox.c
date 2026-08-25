@@ -25,6 +25,7 @@
 #include "state_management.h"
 #include "kmbox_serial_handler.h"
 #include "smooth_injection.h"
+#include "rawhid_control.h"
 #include "peri_clock.h"
 #include "xbox_gip.h"
 #include "xbox_device.h"
@@ -185,6 +186,9 @@ static bool initialize_system(void) {
     // Initialize USB HID module (USB host power OFF for now)
     usb_hid_init();
 
+    // Initialize vendor RawHID control interface (SmartUniversalMouse protocol)
+    rawhid_control_init();
+
     // Initialize watchdog system (but don't start it yet)
     watchdog_init();
 
@@ -312,6 +316,10 @@ static void main_application_loop(void) {
         // Bridge movements are added to the shared accumulator and combined
         // with physical mouse movements automatically
         kmbox_serial_task();
+
+        // Vendor RawHID control task - drain SmartUniversalMouse protocol
+        // responses and enforce the 30 s communication timeout
+        rawhid_control_task();
         
         // HID device task - processes physical mouse/keyboard and sends combined reports
         // Xbox mode: run Xbox device task instead of HID device task

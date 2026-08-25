@@ -1392,6 +1392,11 @@ void kmbox_start_button_click(kmbox_button_t button, uint32_t current_time_ms)
     start_button_click(button, current_time_ms);
 }
 
+void kmbox_force_button(kmbox_button_t button, bool pressed, uint32_t current_time_ms)
+{
+    set_button_state(button, pressed, current_time_ms);
+}
+
 uint8_t kmbox_get_current_buttons(void)
 {
     // Return the current combined button byte (physical | forced) without

@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include "tusb.h"
 #include "class/hid/hid.h"
 #include "class/hid/hid_device.h"
@@ -113,6 +114,22 @@ const char* get_dynamic_serial_string(void);
 
 // Function to force USB re-enumeration
 void force_usb_reenumeration(void);
+
+//--------------------------------------------------------------------+
+// RawHID CONTROL INTERFACE ACCESSORS (rawhid_control.c)
+//--------------------------------------------------------------------+
+
+// Device-side HID instance index of the vendor RawHID control interface
+// (appended after the mirrored interfaces in the configuration descriptor)
+uint8_t usbhid_get_rawhid_instance(void);
+
+// Cloned host mouse report descriptor (NULL via *len=0 when unavailable)
+const uint8_t *usbhid_get_mouse_desc(size_t *len);
+
+// Descriptor generation counter — increments on every output descriptor
+// rebuild (mouse attach/detach), used by the control protocol to detect
+// layout changes
+uint16_t usbhid_get_mouse_desc_generation(void);
 
 // TinyUSB Host callbacks
 void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const* desc_report, uint16_t desc_len);

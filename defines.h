@@ -195,7 +195,10 @@
 // USB descriptor constants
 #define USB_BCD_VERSION                 0x0200  // USB 2.0
 #define USB_VENDOR_ID                   0x9981  // Vendor ID
-#define USB_PRODUCT_ID                  0x4001  // Product ID
+// PID bumped to 0x4002 when the RawHID control interface was added:
+// Windows caches config/HID descriptors per (VID,PID,serial,port) instance,
+// so a fresh PID forces a new device instance and avoids stale descriptors.
+#define USB_PRODUCT_ID                  0x4003  // Product ID
 #define USB_DEVICE_VERSION              0x0100  // Device version 1.0
 #define USB_NUM_CONFIGURATIONS          0x01    // Number of configurations
 #define USB_CONFIG_POWER_MA             100     // Power consumption in mA
