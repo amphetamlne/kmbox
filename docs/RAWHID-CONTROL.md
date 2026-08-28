@@ -168,7 +168,76 @@ Usage** 这条规则很容易在手写 vendor 描述符时漏掉，且几乎没�
 "发给 Windows 之前"帮你查出来——最快的定位方式就是直接看 Windows 设备管理器
 "事件"标签页给出的原始错误文本，而不是反复用工具核对字节。
 
-## 5. 运行时诊断通道（排障用，问题解决后可整段删除）
+## 5. 移动注入的完整实现链路
+
+`RAWHID_CMD_MOVE`（第3.1节）只是众多"移动输入源"里的一路，理解它必须放进
+整条"输入 → 累加 → Core0 混合/人性化 → 输出报文"的流水线里看，否则容易误以为
+RawHID 自己会拼 HID 报文——实际上它完全不接触报文格式，只负责写累加器。
+
+### 5.1 三路输入，共享同一个累加器
+
+最终都调用 `kmbox_add_mouse_movement(x, y)`（`lib/kmbox-commands/kmbox_commands.c:1281`），
+把 delta 累加进 `g_kmbox_state.mouse_x_accumulator` / `mouse_y_accumulator`
+（spinlock 保护，clamp 到 ±4096）：
+
+| 输入源 | 代码位置 | 说明 |
+|---|---|---|
+| **RawHID 控制接口** | `rawhid_control.c:299`（`RAWHID_CMD_MOVE` 分支） | 客户端已经按逻辑范围切好 delta，直接喂累加器，不做任何整形——追求最小延迟 |
+| UART Bridge 协议 | `kmbox_serial_handler.c:351`/`367`（`BRIDGE_CMD_MOUSE_MOVE`/`_WHEEL`） | 走 RP2350 USB Bridge 转发过来的二进制包 |
+| 原版 kmbox 串口命令 | `kmbox_serial_handler.c` 文本/快速二进制命令解析 | 兼容原始 kmbox 协议 |
+
+RawHID 这一路的关键行为：`apply_button_mask()` 用绝对掩码同步按钮状态，
+`x != 0 || y != 0` 才调用累加，避免零位移也触发一次 `record_movement_event`。
+
+### 5.2 物理鼠标是独立的第二条累加路径
+
+Core1（USB Host 栈）收到物理鼠标中断报文后，`process_mouse_report_internal()`
+（`usb_hid.c:1841`）→ `forward_raw_mouse_report()`（`usb_hid.c:1713`，按
+`host_mouse_layout` 解析出的 bit 布局，分 `LAYOUT_FAST_16BIT`/`_8BIT`/generic
+三档快速路径抠字段）→ `kmbox_accumulate_mouse()`，**加进同一套累加器**。
+物理位移与 RawHID/Bridge 注入的位移在累加器层面完全等价、不可区分。
+
+同时调用 `smooth_record_physical_movement()`，供 5.3 节的"速度匹配"人性化
+模式参考当前真实移动速度。
+
+架构约束：Core1 **绝不**直接调用任何 `tud_*` 设备 API（TinyUSB 设备栈只能在
+Core0 跑），Core1 只做累加、置位 `fresh_mouse_data`，实际发送完全交给 Core0。
+
+### 5.3 Core0 `hid_device_task` 统一抽取、混合、人性化、发送
+
+主循环里以约 1ms 为基准（`HID_DEVICE_TASK_INTERVAL_MS`，叠加高斯 jitter 模拟
+真实轮询抖动）轮询一次（`usb_hid.c:1960` 起）：
+
+1. `kmbox_try_drain_mouse_16()`（`usb_hid.c:2017`）：单次 spinlock 原子取出
+   累加器里的 buttons/x/y/wheel/pan 并清零。
+2. 若 `smooth_has_pending()`，调 `smooth_process_frame()` 叠加
+   `smooth_injection.c` 独立产出的"人类化轨迹"分量（大位移自动拆分成多帧、
+   按速度/距离调整步长、onset 延迟抖动、过冲回正——服务于
+   `smooth_inject_movement()` 这条老串口协议的"整体平滑移动"命令，与
+   RawHID/Bridge 的直通累加是两条并行的输入通道，只在这一步汇合）。
+3. `apply_output_humanization()`：无物理鼠标时整体位移都当合成数据做人性化；
+   有物理鼠标时只对 smooth injection 部分做人性化（物理移动本身已经是"人"的
+   输入）。
+4. 按位移幅度动态加权叠加亚像素噪声/传感器噪声（`hid_rng_gaussian()`，
+   `usb_hid.c:464`；`stochastic_round()`，`usb_hid.c:489`，让 <0.5px 的抖动
+   仍有概率被观察到，而不是被 `roundf()` 直接吃掉）。
+5. `build_raw_mouse_report()` 按 `host_mouse_layout`（宿主鼠标真实的 bit
+   布局）或 `output_mouse_layout_16bit`（回退用 16 位描述符）打包 buttons/x/
+   y/wheel/pan，`tud_hid_n_report(mouse_device_instance, ...)` 发出。
+6. 从活跃转空闲的边缘会补发一次全零位移报文（模拟真实鼠标停止移动前的
+   "最后一帧"），完全空闲时**不**发任何报文——持续发零位移报文本身就是一种
+   指纹，真实鼠标闲置时会 NAK 轮询。
+
+### 5.4 RawHID 在这条链路里的定位
+
+RawHID 控制接口本身**不参与报文格式化**，它只是"往累加器里写一个 delta"的
+一个输入源，剩下的整形、人性化、按宿主描述符打包，全部是 Core0
+`hid_device_task` 里统一处理的通用逻辑——RawHID、Bridge、物理鼠标三路输入在
+到达这一层之前是完全对称的。这也是为什么 `RAWHID_CMD_MOVE` 的处理函数
+（`handle_legacy()` 里的分支）写得极其单薄：调用方在协议层已经做完了该做的
+事，剩下的交给系统统一收尾。
+
+## 6. 运行时诊断通道（排障用，问题解决后可整段删除）
 
 `usb_hid.c` 里保留了一段用于定位本次问题的诊断代码
 （搜索 `rawhid_diag_`），通过在 **itf0**（无镶镜时是独立键鼠接口，有镶镜时
