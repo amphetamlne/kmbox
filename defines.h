@@ -169,7 +169,7 @@
 #define BREATHING_HALF_CYCLE_MS         (BREATHING_CYCLE_MS / 2)
 #define POWER_STABILIZATION_DELAY_MS    10      // Power stabilization delay
 #define ACTIVITY_FLASH_DURATION_MS      150     // Activity flash duration
-#define ACTIVITY_FLASH_BRIGHTNESS       200     // Brightness for passive activity flash (0-255)
+#define ACTIVITY_FLASH_BRIGHTNESS       NEOPIXEL_GLOBAL_BRIGHTNESS_CAP  // Activity flash 跟随全局亮度上限
 
 // Reporting intervals
 #define DEBUG_INTERVAL                  10000   // Print debug every 10000 reports
@@ -334,6 +334,10 @@
 #define MAX_BRIGHTNESS                  1.0f
 #define BREATHING_MIN_BRIGHTNESS        0.2f
 #define BREATHING_MAX_BRIGHTNESS        0.8f
+
+// 全局 WS2812 亮度上限 (0-255)，降低此值可整体调暗 LED
+// 255 = 满亮度, 128 ≈ 50%, 80 ≈ 31% (柔和)
+#define NEOPIXEL_GLOBAL_BRIGHTNESS_CAP  10
 
 // WS2812 configuration
 #define WS2812_FREQUENCY_HZ             800000

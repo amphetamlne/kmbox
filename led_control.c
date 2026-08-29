@@ -95,7 +95,7 @@ static led_controller_t g_led_controller = {
     .activity_flash_active = false,
     .caps_lock_flash_active = false,
     .breathing_enabled = false,
-    .current_brightness_u8 = (uint8_t)(MAX_BRIGHTNESS * 255.0f),
+    .current_brightness_u8 = NEOPIXEL_GLOBAL_BRIGHTNESS_CAP,
     .blink_interval_ms = DEFAULT_BLINK_INTERVAL_MS,
     .last_blink_time = 0,
     .led_state = false,
@@ -431,7 +431,7 @@ uint32_t neopixel_apply_brightness_u8(uint32_t color, uint8_t brightness)
 
 void neopixel_set_color(uint32_t color)
 {
-    neopixel_set_color_with_brightness_u8(color, 255);
+    neopixel_set_color_with_brightness_u8(color, NEOPIXEL_GLOBAL_BRIGHTNESS_CAP);
 }
 
 void neopixel_set_color_with_brightness(uint32_t color, float brightness)
@@ -518,8 +518,8 @@ static void update_breathing_brightness(void)
     uint32_t period = BREATHING_CYCLE_MS;
     uint32_t t = cycle_time % period;
     // Pre-computed at compile time: avoid float multiply in hot path
-    static const uint8_t min_b = (uint8_t)(int)(BREATHING_MIN_BRIGHTNESS * 255.0f);
-    static const uint8_t max_b = (uint8_t)(int)(BREATHING_MAX_BRIGHTNESS * 255.0f);
+    static const uint8_t min_b = (uint8_t)(int)(BREATHING_MIN_BRIGHTNESS * NEOPIXEL_GLOBAL_BRIGHTNESS_CAP);
+    static const uint8_t max_b = (uint8_t)(int)(BREATHING_MAX_BRIGHTNESS * NEOPIXEL_GLOBAL_BRIGHTNESS_CAP);
     uint8_t range = (uint8_t)(max_b - min_b);
     uint16_t val;
     if (t < BREATHING_HALF_CYCLE_MS) {
@@ -884,11 +884,11 @@ static void handle_rainbow_effect(void)
         }
     }
 
-    // Convert HSV to RGB with full saturation and brightness
-    uint32_t rainbow_color = hsv_to_rgb(g_led_controller.rainbow_hue, 255, 255);
+    // Convert HSV to RGB with full saturation, value 直接受全局亮度上限控制
+    uint32_t rainbow_color = hsv_to_rgb(g_led_controller.rainbow_hue, 255, NEOPIXEL_GLOBAL_BRIGHTNESS_CAP);
 
-    // Fixed brightness for rainbow to avoid float math
-    neopixel_set_color_with_brightness_u8(rainbow_color, 200);
+    // 彩虹亮度跟随全局上限
+    neopixel_set_color(rainbow_color);
 }
 
 void neopixel_trigger_rainbow_effect(void)
