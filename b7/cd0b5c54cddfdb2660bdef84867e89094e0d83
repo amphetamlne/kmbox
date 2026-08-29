@@ -1,0 +1,18 @@
+.idea/vcs.xml
+  h_fc70e22ca6c685 5-7
+defines.h
+  h_fc70e22ca6c685 172,338-341
+led_control.c
+  h_fc70e22ca6c685 98,434,521-522,887-888,890-891
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "b7cd0b5c54cddfdb2660bdef84867e89094e0d83",
+  "prompts": {},
+  "humans": {
+    "h_fc70e22ca6c685": {
+      "author": "龙超 <longchao@onerobot.com>"
+    }
+  }
+}
