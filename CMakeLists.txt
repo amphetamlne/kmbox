@@ -24,7 +24,7 @@ if (EXISTS ${picoVscode})
     include(${picoVscode})
 endif()
 # ====================================================================================
-# Board selection: waveshare_rp2350_usb_a / adafruit_metro_rp2350 / pico2 (RP2350 only)
+# Board selection: waveshare_rp2350_usb_a / muluoxing_rp2350_usb_a / adafruit_metro_rp2350 / pico2 (RP2350 only)
 set(PICO_BOARD waveshare_rp2350_usb_a CACHE STRING "Board type")
 
 # Tell the SDK where to find custom board headers (e.g. adafruit_metro_rp2350.h)
@@ -51,6 +51,19 @@ elseif(PICO_BOARD STREQUAL "waveshare_rp2350_usb_a")
     set(NEOPIXEL_PIN 16 CACHE STRING "NeoPixel data pin")
     set(NEOPIXEL_POWER_PIN 255 CACHE STRING "NeoPixel power pin (255=not used)")
     message(STATUS "Configuring for Waveshare RP2350-USB-A - USB Host on GPIO12/13")
+elseif(PICO_BOARD STREQUAL "muluoxing_rp2350_usb_a")
+    # MuLuoxing (MILLIONXING) RP2350 USB-A (Pico 2 compatible pinout, RP2350A, 4MB flash):
+    # USB-A socket D+=GPIO12 / D-=GPIO13 (per Waveshare RP2350-USB-A reference),
+    # VBUS hardwired to VSYS (no 5V enable GPIO -> dummy internal-only GPIO23),
+    # WS2812 on GPIO16, no confirmed discrete LED -> dummy internal-only GPIO25
+    # (GPIO23/25 are NOT broken out on the Pico 2 compatible header).
+    set(USB_HOST_DP_PIN 12 CACHE STRING "USB Host D+ pin")
+    set(USB_HOST_DM_PIN 13 CACHE STRING "USB Host D- pin")
+    set(USB_HOST_5V_PIN 23 CACHE STRING "USB Host 5V power pin (dummy, VBUS always on)")
+    set(LED_PIN 25 CACHE STRING "Status LED pin (dummy internal-only GPIO)")
+    set(NEOPIXEL_PIN 16 CACHE STRING "NeoPixel data pin")
+    set(NEOPIXEL_POWER_PIN 255 CACHE STRING "NeoPixel power pin (255=not used)")
+    message(STATUS "Configuring for MuLuoxing RP2350-USB-A - USB Host on GPIO12/13")
 else()
     # Default: Pico/Pico2 with common GPIO16/17 for PIO USB
     set(USB_HOST_DP_PIN 16 CACHE STRING "USB Host D+ pin")

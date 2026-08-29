@@ -43,8 +43,9 @@ DRIVE_UNKNOWN = 0
 DRIVE_NO_ROOT_DIR = 1
 DRIVE_REMOVABLE = 3
 
-# 已知的 BOOTSEL 卷标（KMBOX-BRDG 为白标烧录后的 Bridge 设备）
-BOOTSEL_LABELS = {"RPI-RP2", "KMBOX-BRDG"}
+# 已知的 BOOTSEL 卷标（KMBOX-BRDG 为白标烧录后的 Bridge 设备;
+# RP2350 为部分克隆板 bootloader 的自定义卷标, 如 MuLuoxing RP2350 USB-A）
+BOOTSEL_LABELS = {"RPI-RP2", "KMBOX-BRDG", "RP2350"}
 
 
 class BootDrive:

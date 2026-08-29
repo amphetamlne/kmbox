@@ -1,11 +1,15 @@
-# PIOKMbox Windows 一键编译脚本（Waveshare RP2350-USB-A）
-# 用法: pwsh -NoProfile -ExecutionPolicy Bypass -File tools/build_kmbox_windows.ps1
+# PIOKMbox Windows 一键编译脚本（默认 Waveshare RP2350-USB-A）
+# 用法: pwsh -NoProfile -ExecutionPolicy Bypass -File tools/build_kmbox_windows.ps1 [-Board <板名>]
+# 可选板名: waveshare_rp2350_usb_a / muluoxing_rp2350_usb_a（见 boards/ 目录）
 # 说明: 顶部变量按默认安装位置编写，路径不同请直接修改。
+param(
+    [string]$Board = 'waveshare_rp2350_usb_a'
+)
 $OutputEncoding = [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
-$buildDir = Join-Path $root 'build-waveshare'
+$buildDir = Join-Path $root ('build-' + ($Board -replace '_rp2350_usb_a$', ''))
 $sdk = "$env:USERPROFILE\.pico-sdk\sdk\2.2.0-fresh"
 $toolchain = "$env:USERPROFILE\.pico-sdk\toolchain"
 $python = (Get-Command python -ErrorAction SilentlyContinue).Source
@@ -31,11 +35,11 @@ $env:PICO_SDK_PATH = $sdk
 $env:PICO_TOOLCHAIN_PATH = $toolchain
 $env:HOME = $env:USERPROFILE
 
-Write-Output ">>> CMake configure (KMBox main / waveshare_rp2350_usb_a)..."
+Write-Output ">>> CMake configure (KMBox main / $Board)..."
 $cmakeArgs = @(
     '-S', $root, '-B', $buildDir, '-G', 'Ninja',
     "-DCMAKE_MAKE_PROGRAM=$ninja",
-    '-DPICO_BOARD=waveshare_rp2350_usb_a',
+    "-DPICO_BOARD=$Board",
     '-DPICO_PLATFORM=rp2350-arm-s',
     '-DCMAKE_BUILD_TYPE=Release'
 )

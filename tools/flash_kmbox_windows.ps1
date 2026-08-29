@@ -7,6 +7,7 @@ $root = Split-Path -Parent $PSScriptRoot
 
 # 按优先级查找固件产物
 $candidates = @(
+    (Join-Path $root 'build-muluoxing\PIOKMbox.uf2'),
     (Join-Path $root 'build-waveshare\PIOKMbox.uf2'),
     (Join-Path $root 'build-metro\PIOKMbox.uf2')
 )
