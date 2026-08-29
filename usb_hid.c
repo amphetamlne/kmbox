@@ -2274,7 +2274,11 @@ void hid_device_task(void)
         // All output-stage noise is scaled by movement magnitude to prevent
         // overwhelming low-speed signals.  At 1-2 counts, ±1 noise is 50-100%
         // perturbation, creating chaotic scribble.
-        apply_output_stage_humanization(&x, &y, smooth_x, smooth_y, frame_human_mode, true);
+        // sensor_noise_allowed 仅在本帧含合成分量（smooth 注入）时打开——
+        // 纯物理鼠标移动（无软件运行时的透传场景）保持传感器原始输出，
+        // 与 send_forwarded_report() 的门控口径一致。
+        apply_output_stage_humanization(&x, &y, smooth_x, smooth_y, frame_human_mode,
+                                        (smooth_x != 0 || smooth_y != 0));
 
         // Send if there's any movement, wheel, OR button state to report.
         if (x != 0 || y != 0 || wheel != 0 || buttons != 0 || buttons_changed) {
