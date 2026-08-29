@@ -1,0 +1,22 @@
+CMakeLists.txt
+  h_fc70e22ca6c685 1,9-10,12,27,30,33,40,44-47,53,57-61,64-65,67,71,77,82,85,90,93,112,118-121,125-129,134,155,158,161,169,171,187,192,195,198,201,207
+boards/muluoxing_rp2350_usb_a.h
+  h_fc70e22ca6c685 55-56,70,81
+boards/waveshare_rp2350_usb_a.h
+  h_fc70e22ca6c685 72
+defines.h
+  h_fc70e22ca6c685 65-69,345
+led_control.c
+  h_fc70e22ca6c685 122-130,188-228,448-471
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "6bc1fef46a061536e3256ed2e3bbda8fcbf945e3",
+  "prompts": {},
+  "humans": {
+    "h_fc70e22ca6c685": {
+      "author": "龙超 <longchao@onerobot.com>"
+    }
+  }
+}
