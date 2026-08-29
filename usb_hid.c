@@ -14,6 +14,8 @@
 #include "watchdog.h"           // Include the header for watchdog management
 #include "smooth_injection.h"   // Include the header for smooth mouse injection
 #include "humanization_fpu.h"   // Include for tremor generation
+#include "timing_lock.h"        // km.lock — timing fingerprint protection
+#include "report_forward.h"     // km.forward — physical raw-report forwarding
 #include "xbox_gip.h"           // Xbox mode flag
 #include "xbox_device.h"        // Xbox device descriptors
 #include "rawhid_control.h"     // Vendor RawHID control interface (SmartUniversalMouse)
@@ -1484,6 +1486,11 @@ bool usb_hid_init(void)
     // Seed output-stage PRNG from hardware TRNG
     hid_rng_seed(get_rand_32());
 
+    // Initialize km.lock timing fingerprint protection (session PRNG seeded
+    // from the same hardware TRNG)
+    timing_lock_init();
+    report_forward_init();
+
     // Build default runtime HID report descriptor (keyboard + default mouse + consumer)
     build_runtime_hid_report_with_mouse(NULL, 0);
 
@@ -1700,46 +1707,52 @@ static void classify_mouse_layout(mouse_report_layout_t *L) {
     }
 }
 
-/**
- * Core1 accumulate-only mouse report handler.
- *
- * ARCHITECTURE NOTE: TinyUSB device API (tud_hid_report, etc.) is NOT
- * thread-safe.  Core0 runs tud_task() in the main loop, so ALL device
- * API calls must happen on Core0.  This function — called from Core1's
- * tuh_hid_report_received_cb — ONLY extracts physical mouse data and
- * writes it into the shared accumulators (spinlock-protected).  Core0's
- * hid_device_task() drains the accumulators and sends the USB report.
- */
-static void __not_in_flash_func(forward_raw_mouse_report)(const uint8_t *raw, uint16_t raw_len)
+// km.forward 生效条件：人性化非 OFF（OFF 档保持累加路径字节级等价，
+// 兼容性红线）且设备侧输出布局与 host 克隆布局一致（物理原包字节可直接发出）。
+// using_16bit_output_override 为 true 时设备布局已被改成 16-bit 模板，
+// 原包字节不再匹配，必须走合成路径重编码。
+static inline bool forward_mode_active(void) {
+    return timing_lock_active() &&
+           !using_16bit_output_override &&
+           host_mouse_layout.valid && host_mouse_desc_len > 0;
+}
+
+// 从物理鼠标原始报告字节中提取按钮/轴/滚轮字段（按 host_mouse_layout）。
+// Core1 累加路径与 Core0 转发合并路径共用同一套提取逻辑。
+// 返回 false = 报文长度不足以覆盖字段（调用方应丢弃该包）。
+static bool __not_in_flash_func(extract_mouse_axes)(const uint8_t *raw, uint16_t raw_len,
+                                                    uint8_t *buttons, int16_t *x, int16_t *y,
+                                                    int8_t *wheel, int8_t *pan)
 {
     const mouse_report_layout_t *L = &host_mouse_layout;
 
-    int16_t phys_x = 0, phys_y = 0;
-    int8_t  phys_wheel = 0, phys_pan = 0;
-    uint8_t phys_buttons = 0;
+    *buttons = 0; *x = 0; *y = 0; *wheel = 0; *pan = 0;
 
     // --- Fast paths for common byte-aligned layouts (95%+ of gaming mice) ---
     // Avoids all the bitwise extraction, bounds checks, and branches below.
     if (__builtin_expect(L->layout_class == LAYOUT_FAST_16BIT, 1)) {
         // 16-bit XY, byte-aligned, <=8-bit buttons
         if (__builtin_expect(raw_len >= L->y_offset + 2, 1)) {
-            phys_buttons = raw[L->buttons_offset] & ((L->buttons_bits >= 8) ? 0xFF : ((1u << L->buttons_bits) - 1));
-            phys_x = (int16_t)(raw[L->x_offset] | (raw[L->x_offset + 1] << 8));
-            phys_y = (int16_t)(raw[L->y_offset] | (raw[L->y_offset + 1] << 8));
-            if (L->has_wheel && L->wheel_offset < raw_len) phys_wheel = (int8_t)raw[L->wheel_offset];
-            if (L->has_pan && L->pan_offset < raw_len)     phys_pan = (int8_t)raw[L->pan_offset];
-            goto accumulate;
+            *buttons = raw[L->buttons_offset] & ((L->buttons_bits >= 8) ? 0xFF : ((1u << L->buttons_bits) - 1));
+            *x = (int16_t)(raw[L->x_offset] | (raw[L->x_offset + 1] << 8));
+            *y = (int16_t)(raw[L->y_offset] | (raw[L->y_offset + 1] << 8));
+            if (L->has_wheel && L->wheel_offset < raw_len) *wheel = (int8_t)raw[L->wheel_offset];
+            if (L->has_pan && L->pan_offset < raw_len)     *pan = (int8_t)raw[L->pan_offset];
+            return true;
         }
-    } else if (L->layout_class == LAYOUT_FAST_8BIT) {
+        return false;
+    }
+    if (L->layout_class == LAYOUT_FAST_8BIT) {
         // 8-bit XY, byte-aligned, <=8-bit buttons
         if (__builtin_expect(raw_len >= L->y_offset + 1, 1)) {
-            phys_buttons = raw[L->buttons_offset] & ((L->buttons_bits >= 8) ? 0xFF : ((1u << L->buttons_bits) - 1));
-            phys_x = (int8_t)raw[L->x_offset];
-            phys_y = (int8_t)raw[L->y_offset];
-            if (L->has_wheel && L->wheel_offset < raw_len) phys_wheel = (int8_t)raw[L->wheel_offset];
-            if (L->has_pan && L->pan_offset < raw_len)     phys_pan = (int8_t)raw[L->pan_offset];
-            goto accumulate;
+            *buttons = raw[L->buttons_offset] & ((L->buttons_bits >= 8) ? 0xFF : ((1u << L->buttons_bits) - 1));
+            *x = (int8_t)raw[L->x_offset];
+            *y = (int8_t)raw[L->y_offset];
+            if (L->has_wheel && L->wheel_offset < raw_len) *wheel = (int8_t)raw[L->wheel_offset];
+            if (L->has_pan && L->pan_offset < raw_len)     *pan = (int8_t)raw[L->pan_offset];
+            return true;
         }
+        return false;
     }
 
     // --- Generic path: arbitrary bit-width and non-aligned fields ---
@@ -1749,10 +1762,10 @@ static void __not_in_flash_func(forward_raw_mouse_report)(const uint8_t *raw, ui
         if (L->buttons_bits > 8 && L->buttons_offset + 1 < raw_len) {
             uint16_t buttons16 = raw[L->buttons_offset] | (raw[L->buttons_offset + 1] << 8);
             uint16_t mask = (L->buttons_bits >= 16) ? 0xFFFF : ((1u << L->buttons_bits) - 1);
-            phys_buttons = (uint8_t)(buttons16 & mask);
+            *buttons = (uint8_t)(buttons16 & mask);
         } else {
             uint8_t mask = (L->buttons_bits >= 8) ? 0xFF : ((1u << L->buttons_bits) - 1);
-            phys_buttons = raw[L->buttons_offset] & mask;
+            *buttons = raw[L->buttons_offset] & mask;
         }
     }
 
@@ -1770,14 +1783,14 @@ static void __not_in_flash_func(forward_raw_mouse_report)(const uint8_t *raw, ui
             raw32 &= (1u << nbits) - 1;
             if (raw32 & (1u << (nbits - 1)))
                 raw32 |= ~((1u << nbits) - 1);
-            phys_x = (int16_t)(int32_t)raw32;
+            *x = (int16_t)(int32_t)raw32;
         }
     } else if (L->x_is_16bit) {
         if (L->x_offset + 1 < raw_len)
-            phys_x = (int16_t)(raw[L->x_offset] | (raw[L->x_offset + 1] << 8));
+            *x = (int16_t)(raw[L->x_offset] | (raw[L->x_offset + 1] << 8));
     } else if (L->x_bits == 8) {
         if (L->x_offset < raw_len)
-            phys_x = (int8_t)raw[L->x_offset];
+            *x = (int8_t)raw[L->x_offset];
     }
 
     // Y axis extraction
@@ -1794,24 +1807,46 @@ static void __not_in_flash_func(forward_raw_mouse_report)(const uint8_t *raw, ui
             raw32 &= (1u << nbits) - 1;
             if (raw32 & (1u << (nbits - 1)))
                 raw32 |= ~((1u << nbits) - 1);
-            phys_y = (int16_t)(int32_t)raw32;
+            *y = (int16_t)(int32_t)raw32;
         }
     } else if (L->y_is_16bit) {
         if (L->y_offset + 1 < raw_len)
-            phys_y = (int16_t)(raw[L->y_offset] | (raw[L->y_offset + 1] << 8));
+            *y = (int16_t)(raw[L->y_offset] | (raw[L->y_offset + 1] << 8));
     } else if (L->y_bits == 8) {
         if (L->y_offset < raw_len)
-            phys_y = (int8_t)raw[L->y_offset];
+            *y = (int8_t)raw[L->y_offset];
     }
 
     if (L->has_wheel && L->wheel_offset < raw_len) {
-        phys_wheel = (int8_t)raw[L->wheel_offset];
+        *wheel = (int8_t)raw[L->wheel_offset];
     }
     if (L->has_pan && L->pan_offset < raw_len) {
-        phys_pan = (int8_t)raw[L->pan_offset];
+        *pan = (int8_t)raw[L->pan_offset];
+    }
+    return true;
+}
+
+/**
+ * Core1 accumulate-only mouse report handler.
+ *
+ * ARCHITECTURE NOTE: TinyUSB device API (tud_hid_report, etc.) is NOT
+ * thread-safe.  Core0 runs tud_task() in the main loop, so ALL device
+ * API calls must happen on Core0.  This function — called from Core1's
+ * tuh_hid_report_received_cb — ONLY extracts physical mouse data and
+ * writes it into the shared accumulators (spinlock-protected).  Core0's
+ * hid_device_task() drains the accumulators and sends the USB report.
+ */
+static void __not_in_flash_func(forward_raw_mouse_report)(const uint8_t *raw, uint16_t raw_len)
+{
+    int16_t phys_x = 0, phys_y = 0;
+    int8_t  phys_wheel = 0, phys_pan = 0;
+    uint8_t phys_buttons = 0;
+
+    if (!extract_mouse_axes(raw, raw_len, &phys_buttons, &phys_x, &phys_y,
+                             &phys_wheel, &phys_pan)) {
+        return;
     }
 
-accumulate:
     // --- Accumulate into shared state (single spinlock for all axes) ---
     kmbox_update_physical_buttons(phys_buttons & 0x1F);
 
@@ -1932,6 +1967,148 @@ bool find_key_in_report(const hid_keyboard_report_t *report, uint8_t keycode)
            (report->keycode[5] == keycode);
 }
 
+// 输出级人性化（亚像素量化噪声 + 传感器噪声）——合成路径与转发合并路径共用。
+// 噪声强度按总位移幅度门控，防止低速信号被噪声淹没（与原实现一致）。
+static void __not_in_flash_func(apply_output_stage_humanization)(int16_t *x, int16_t *y,
+                                                                 int16_t smooth_x, int16_t smooth_y,
+                                                                 humanization_mode_t frame_human_mode,
+                                                                 bool sensor_noise_allowed)
+{
+    (void)smooth_x; (void)smooth_y;
+    if (frame_human_mode == HUMANIZATION_OFF || (*x == 0 && *y == 0)) return;
+
+    float out_mag = sqrtf((float)(*x) * (*x) + (float)(*y) * (*y));
+    float noise_gate = fminf(1.0f, out_mag / 4.0f);  // ramp 0→1 over [0,4]px
+
+    // Sub-pixel quantization noise: real sensors accumulate fractional
+    // pixel residuals that occasionally leak as ±1 count perturbations.
+    // Accumulator stddev 0.45 → crosses ±1 roughly every 3-5 frames
+    // during fast movement, producing 3-8% sub-pixel noise.
+    static float subpx_accum_x = 0.0f;
+    static float subpx_accum_y = 0.0f;
+    float subpx_noise = 0.45f * noise_gate;
+    subpx_accum_x += hid_rng_gaussian() * subpx_noise;
+    subpx_accum_y += hid_rng_gaussian() * subpx_noise;
+    if (subpx_accum_x >= 1.0f) { *x += 1; subpx_accum_x -= 1.0f; }
+    else if (subpx_accum_x <= -1.0f) { *x -= 1; subpx_accum_x += 1.0f; }
+    if (subpx_accum_y >= 1.0f) { *y += 1; subpx_accum_y -= 1.0f; }
+    else if (subpx_accum_y <= -1.0f) { *y -= 1; subpx_accum_y += 1.0f; }
+
+    // Sensor noise: gaussian-based, also scaled by magnitude.
+    // Only apply when movement is large enough that noise won't dominate.
+    // sensor_noise_allowed 由调用方决定：合成路径无条件允许（保持旧行为），
+    // 转发路径仅在本帧含注入分量时允许（不扰动纯物理信号）。
+    if (noise_gate > 0.25f && sensor_noise_allowed) {
+        *x = apply_sensor_noise(*x);
+        *y = apply_sensor_noise(*y);
+    }
+}
+
+// km.forward：发出一包转发的物理原包（叠加注入修正量与合并按钮态）。
+// 物理分量总是发出（真实报告优先）；注入分量受 km.lock 门控，被拒时
+// 留在累加器等下一包搭车——数据不丢。仅在 forward_mode_active() 时调用。
+static void __not_in_flash_func(send_forwarded_report)(bool tlock_on,
+                                                       humanization_mode_t frame_human_mode)
+{
+    const uint8_t *raw;
+    uint8_t raw_len;
+    if (!report_forward_pop(&raw, &raw_len)) return;
+
+    uint8_t sz = host_mouse_layout.report_size;
+    if (sz == 0 || raw_len < sz) return;  // 报文长度与布局不匹配，丢弃本包
+    if (raw_len > REPORT_FWD_MAX_LEN) raw_len = REPORT_FWD_MAX_LEN;
+
+    uint8_t buf[REPORT_FWD_MAX_LEN];
+    memcpy(buf, raw, raw_len);
+
+    // 合并按钮态（物理 + 命令强置 + 轴锁），与合成路径同口径
+    const uint8_t buttons = kmbox_get_current_buttons();
+
+    // 轴锁：锁定轴置零（物理 + 注入一并屏蔽，与累加路径语义一致）
+    int16_t x = 0, y = 0;
+
+    // 提取物理分量（滚轮原样随包转发，不参与合并）
+    int16_t phys_x = 0, phys_y = 0;
+    int8_t phys_wheel = 0, phys_pan = 0;
+    uint8_t phys_buttons = 0;
+    (void)phys_wheel; (void)phys_pan; (void)phys_buttons;
+    extract_mouse_axes(buf, raw_len, &phys_buttons, &phys_x, &phys_y,
+                      &phys_wheel, &phys_pan);
+    if (!kmbox_get_lock_mx()) x = phys_x;
+    if (!kmbox_get_lock_my()) y = phys_y;
+
+    // 注入修正量搭车：门控通过才抽取，否则留在累加器等下一包。
+    // drain 会消费滚轮累加器但丢弃其值——滚轮已随物理原包转发，
+    // 避免同一事件经合成路径二次发射。
+    int16_t inject_x = 0, inject_y = 0;
+    bool inject_ok = false;
+    if (tlock_on) {
+        inject_ok = timing_lock_allow_send(time_us_32(), true, false);
+    } else {
+        inject_ok = kmbox_has_pending_movement();
+    }
+    if (inject_ok) {
+        uint8_t d_buttons;
+        int8_t d_wheel, d_pan;
+        int16_t d_x = 0, d_y = 0;
+        bool drained;
+        if (tlock_on) {
+            drained = kmbox_try_drain_mouse_16_quota(last_sent_buttons,
+                                                     timing_lock_frame_budget_px(),
+                                                     &d_buttons, &d_x, &d_y, &d_wheel, &d_pan);
+        } else {
+            drained = kmbox_try_drain_mouse_16(last_sent_buttons,
+                                               &d_buttons, &d_x, &d_y, &d_wheel, &d_pan);
+        }
+        if (drained) {
+            inject_x = d_x;
+            inject_y = d_y;
+        }
+    }
+
+    // smooth 细分队列搭车（与合成路径相同的处理顺序）
+    int16_t smooth_x = 0, smooth_y = 0;
+    if (smooth_has_pending()) {
+        smooth_process_frame(&smooth_x, &smooth_y);
+    }
+
+    // 合成分量（注入 + smooth）叠加到物理分量上，再过输出级人性化。
+    // 人性化只作用于合成部分（apply_output_humanization 按 smooth 分量门控），
+    // 物理部分保持传感器原值——这正是转发模式的指纹红利。
+    int16_t inject_sx = (int16_t)(inject_x + smooth_x);
+    int16_t inject_sy = (int16_t)(inject_y + smooth_y);
+    if (inject_sx != 0 || inject_sy != 0) {
+        int16_t tot_x = (int16_t)(x + inject_sx);
+        int16_t tot_y = (int16_t)(y + inject_sy);
+        apply_output_humanization(&tot_x, &tot_y, inject_sx, inject_sy);
+        x = tot_x;
+        y = tot_y;
+    }
+    apply_output_stage_humanization(&x, &y, smooth_x, smooth_y, frame_human_mode,
+                                    (inject_sx != 0 || inject_sy != 0));
+
+    // 在原包字节上就地更新按钮与 X/Y（轴限幅由 write_axis_bits 处理），
+    // 滚轮/横向滚轮保留物理原值。
+    if (host_mouse_layout.buttons_offset < raw_len) {
+        buf[host_mouse_layout.buttons_offset] = buttons;
+        if (host_mouse_layout.buttons_bits > 8 &&
+            host_mouse_layout.buttons_offset + 1 < raw_len) {
+            buf[host_mouse_layout.buttons_offset + 1] = 0;
+        }
+    }
+    write_axis_bits(buf, raw_len, host_mouse_layout.x_start_byte, host_mouse_layout.x_bit_in_byte,
+                    host_mouse_layout.x_bits, host_mouse_layout.x_is_16bit, x);
+    write_axis_bits(buf, raw_len, host_mouse_layout.y_start_byte, host_mouse_layout.y_bit_in_byte,
+                    host_mouse_layout.y_bits, host_mouse_layout.y_is_16bit, y);
+
+    uint8_t rid = host_mouse_layout.has_report_id ? host_mouse_layout.mouse_report_id
+                                                  : REPORT_ID_MOUSE;
+    if (tud_hid_n_report(mouse_device_instance, rid, buf, sz)) {
+        last_sent_buttons = buttons;
+        was_active = true;
+    }
+}
+
 void hid_device_task(void)
 {
     // Xbox mode: skip HID device task entirely, xbox_device_task handles it
@@ -1947,7 +2124,10 @@ void hid_device_task(void)
     // Use cheap microsecond timer for polling with optional jitter.
     // Real mice have crystal/scheduling jitter; perfectly regular 1ms is detectable.
     static uint32_t start_us = 0;
-    static int32_t jitter_us = 0;  // per-frame jitter offset (set after each send)
+    // km.lock: interval to wait before the next timer-gated pass. OFF keeps
+    // the legacy constant 1ms; active modes resample from the AR(1) shaper
+    // each time the gate opens (see below).
+    static int32_t interval_us_next = HID_DEVICE_TASK_INTERVAL_MS * 1000;
     uint32_t current_us = time_us_32();
     uint32_t elapsed_us = current_us - start_us;
 
@@ -1957,16 +2137,31 @@ void hid_device_task(void)
     // polling rate. This reduces average passthrough latency from ~500μs to ~5μs.
     bool force_immediate = fresh_mouse_data;
 
-    if (!force_immediate) {
-        // CRITICAL: Signed arithmetic to avoid uint32 wrap when jitter is negative.
-        int32_t interval_signed = (int32_t)(HID_DEVICE_TASK_INTERVAL_MS * 1000) + jitter_us;
-        if (interval_signed < 500) interval_signed = 500;
-        if (interval_signed > 2500) interval_signed = 2500;
+    // km.lock sync: cheap mode check; resamples session parameters when the
+    // humanization mode changed since the last tick.
+    bool tlock_on = timing_lock_update(smooth_get_humanization_mode());
 
-        if (elapsed_us < (uint32_t)interval_signed)
+    // km.forward: 人性化激活且布局匹配时，物理报告走原包转发路径。
+    // 模式切换/断连导致的失效需清空残留原包，避免陈旧物理包被延迟发出。
+    const bool fwd_on = forward_mode_active();
+    static bool fwd_was_on = false;
+    if (!fwd_on && fwd_was_on) {
+        report_forward_flush();
+    }
+    fwd_was_on = fwd_on;
+    const bool fwd_pending = fwd_on && report_forward_pending();
+
+    if (!force_immediate && !fwd_pending) {
+        if (elapsed_us < (uint32_t)interval_us_next)
         {
             return; // Not enough time elapsed
         }
+        // Resample the interval for the next cycle: AR(1)-correlated sequence
+        // when km.lock is active (replaces the legacy per-frame independent
+        // Gaussian jitter), constant 1ms when OFF (byte-identical legacy).
+        interval_us_next = tlock_on
+            ? timing_lock_next_interval_us()
+            : (HID_DEVICE_TASK_INTERVAL_MS * 1000);
     }
     start_us = current_us;
 
@@ -2009,13 +2204,45 @@ void hid_device_task(void)
         // Cache humanization mode for this frame — avoid 3 function calls per frame
         const humanization_mode_t frame_human_mode = smooth_get_humanization_mode();
 
+        // km.forward：转发包优先于合成包发出，避免自制时钟打乱物理节奏。
+        // 端点未就绪时本轮只等转发（不进合成路径），保证物理报告顺序。
+        if (fwd_pending) {
+            send_forwarded_report(tlock_on, frame_human_mode);
+            return;
+        }
+
+        // km.lock: gate pure-injection sends BEFORE draining so held data
+        // stays in the accumulators instead of being dropped. Physical-carrier
+        // frames (fresh physical report this cycle) and button changes always
+        // bypass the gate — real-mouse semantics.
+        bool probe_buttons_changed = false;
+        if (tlock_on && !force_immediate) {
+            probe_buttons_changed = (kmbox_get_current_buttons() != last_sent_buttons);
+            if (!probe_buttons_changed) {
+                const bool inject_pending = kmbox_has_pending_movement() || smooth_has_pending();
+                if (!timing_lock_allow_send(current_us, inject_pending, false)) {
+                    return; // Held by onset/rate gate — retry next tick
+                }
+            }
+        }
+
         // Atomic check-and-drain: single spinlock instead of separate
         // kmbox_has_pending_movement() + kmbox_get_mouse_report_16() (was 2 spinlock roundtrips)
         uint8_t buttons;
         int16_t x, y;
         int8_t wheel, pan;
-        bool has_kmbox = kmbox_try_drain_mouse_16(last_sent_buttons,
-                                                   &buttons, &x, &y, &wheel, &pan);
+        bool has_kmbox;
+        if (tlock_on && !force_immediate && !probe_buttons_changed) {
+            // Burst guard: quota drain caps per-frame pixels; the remainder
+            // stays in the accumulators and drains over following frames,
+            // flattening client bursts into ballistic multi-frame delivery.
+            has_kmbox = kmbox_try_drain_mouse_16_quota(last_sent_buttons,
+                                                       timing_lock_frame_budget_px(),
+                                                       &buttons, &x, &y, &wheel, &pan);
+        } else {
+            has_kmbox = kmbox_try_drain_mouse_16(last_sent_buttons,
+                                                 &buttons, &x, &y, &wheel, &pan);
+        }
         bool has_smooth = smooth_has_pending();
         bool buttons_changed = (buttons != last_sent_buttons);
 
@@ -2047,32 +2274,7 @@ void hid_device_task(void)
         // All output-stage noise is scaled by movement magnitude to prevent
         // overwhelming low-speed signals.  At 1-2 counts, ±1 noise is 50-100%
         // perturbation, creating chaotic scribble.
-        if (frame_human_mode != HUMANIZATION_OFF &&
-            (x != 0 || y != 0)) {
-            float out_mag = sqrtf((float)x * x + (float)y * y);
-            float noise_gate = fminf(1.0f, out_mag / 4.0f);  // ramp 0→1 over [0,4]px
-
-            // Sub-pixel quantization noise: real sensors accumulate fractional
-            // pixel residuals that occasionally leak as ±1 count perturbations.
-            // Accumulator stddev 0.45 → crosses ±1 roughly every 3-5 frames
-            // during fast movement, producing 3-8% sub-pixel noise.
-            static float subpx_accum_x = 0.0f;
-            static float subpx_accum_y = 0.0f;
-            float subpx_noise = 0.45f * noise_gate;
-            subpx_accum_x += hid_rng_gaussian() * subpx_noise;
-            subpx_accum_y += hid_rng_gaussian() * subpx_noise;
-            if (subpx_accum_x >= 1.0f) { x += 1; subpx_accum_x -= 1.0f; }
-            else if (subpx_accum_x <= -1.0f) { x -= 1; subpx_accum_x += 1.0f; }
-            if (subpx_accum_y >= 1.0f) { y += 1; subpx_accum_y -= 1.0f; }
-            else if (subpx_accum_y <= -1.0f) { y -= 1; subpx_accum_y += 1.0f; }
-
-            // Sensor noise: gaussian-based, also scaled by magnitude.
-            // Only apply when movement is large enough that noise won't dominate.
-            if (noise_gate > 0.25f) {
-                x = apply_sensor_noise(x);
-                y = apply_sensor_noise(y);
-            }
-        }
+        apply_output_stage_humanization(&x, &y, smooth_x, smooth_y, frame_human_mode, true);
 
         // Send if there's any movement, wheel, OR button state to report.
         if (x != 0 || y != 0 || wheel != 0 || buttons != 0 || buttons_changed) {
@@ -2101,18 +2303,9 @@ void hid_device_task(void)
             last_sent_buttons = buttons;
             was_active = true;
 
-            // Compute next frame's timing jitter.
-            // Always jitter when humanization is active — perfectly regular 1ms
-            // intervals are a fingerprint regardless of physical mouse state.
-            // Real USB polling has crystal oscillator drift + OS scheduling jitter.
-            if (frame_human_mode != HUMANIZATION_OFF) {
-                // Gaussian jitter, stddev ~350us → CV ≈ 0.35 on 1000us base.
-                // Smaller than before to avoid excessive clamping; range is
-                // roughly ±700us (95th percentile), keeping interval in [500, 2000].
-                jitter_us = (int32_t)(hid_rng_gaussian() * 350.0f);
-            } else {
-                jitter_us = 0;
-            }
+            // km.lock note: interval shaping happens at the timer gate above
+            // (AR(1) sequence replaces the legacy per-frame independent
+            // Gaussian jitter), so nothing to recompute after sending.
             return;
         }
     }
@@ -2123,6 +2316,11 @@ check_idle:
     // before they begin NAKing idle polls.  Mirror that behavior here.
     if (was_active && tud_hid_n_ready(mouse_device_instance))
     {
+        // km.lock: defer the zero-delta stop report by a sampled offset delay
+        // to break the "client stops sending → bus goes silent" edge coupling.
+        if (tlock_on && !timing_lock_allow_stop(current_us)) {
+            return; // Deferred — vendor queue drains on the next pass
+        }
         uint8_t current_buttons = kmbox_get_current_buttons();
         if (using_16bit_output_override) {
             uint8_t raw[16];
@@ -2620,6 +2818,39 @@ static void __not_in_flash_func(parse_and_forward_mouse_report)(const uint8_t *d
 
     // --- RAW FORWARDING PATH (gaming mice with cloned descriptor) ---
     if (host_mouse_layout.valid && host_mouse_desc_len > 0) {
+        // km.forward：人性化激活时原包整包入转发队列，由 Core0 按到达
+        // 节奏发出（注入修正量搭车叠加）；队列满自动回退累加路径。
+        // OFF 档 / 16-bit 覆盖布局仍走旧累加路径（字节级行为不变）。
+        if (forward_mode_active()) {
+            int16_t phys_x = 0, phys_y = 0;
+            int8_t  phys_wheel = 0, phys_pan = 0;
+            uint8_t phys_buttons = 0;
+            if (!extract_mouse_axes(data, data_len, &phys_buttons, &phys_x, &phys_y,
+                                    &phys_wheel, &phys_pan)) {
+                return;
+            }
+            kmbox_update_physical_buttons(phys_buttons & 0x1F);
+            if (phys_x != 0 || phys_y != 0) {
+                int16_t tx = 0, ty = 0;
+                kmbox_transform_movement(phys_x, phys_y, &tx, &ty);
+                smooth_record_physical_movement(tx, ty);
+            }
+            // 不置 fresh_mouse_data / was_active：Core0 走转发路径发送，
+            // 避免合成快路径重复发射同一份物理位移。
+            if (!report_forward_push(data, (uint8_t)data_len)) {
+                // 溢出回退：走旧累加路径，行为退化为合成模式（不丢位移）
+                int16_t tx = 0, ty = 0;
+                if (phys_x != 0 || phys_y != 0) {
+                    kmbox_transform_movement(phys_x, phys_y, &tx, &ty);
+                }
+                kmbox_accumulate_mouse(tx, ty, phys_wheel, phys_pan);
+                fresh_mouse_data = true;
+                was_active = true;
+            }
+            return;
+        }
+
+        // 累加路径（OFF 档 / 布局不匹配，行为等价旧固件）
         forward_raw_mouse_report(data, data_len);
         return;
     }

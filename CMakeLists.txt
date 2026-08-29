@@ -84,6 +84,8 @@ add_executable(PIOKMbox
     state_management.c
     kmbox_serial_handler.c
     smooth_injection.c
+    timing_lock.c
+    report_forward.c
     humanization_fpu.c
     dcp_helpers.S
     xbox_host.c

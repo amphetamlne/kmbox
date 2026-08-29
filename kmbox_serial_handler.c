@@ -10,6 +10,8 @@
 #include "usb_hid.h"
 #include "led_control.h"
 #include "smooth_injection.h"
+#include "timing_lock.h"
+#include "report_forward.h"
 #include "xbox_gip.h"
 #include "xbox_device.h"
 #include "xbox_host.h"
@@ -807,7 +809,7 @@ static bool handle_text_command(const char *line, size_t len, uint32_t now_ms) {
     // Protocol: KMBOX_INFO
     // Note: This is a diagnostic command, not hot path, but we still optimize it
     if (len >= 10 && strncmp(line, "KMBOX_INFO", 10) == 0) {
-        char resp[128];
+        char resp[160];
         uint16_t vid = get_attached_vid();
         uint16_t pid = get_attached_pid();
         const char *mfr = get_attached_manufacturer();
@@ -841,7 +843,16 @@ static bool handle_text_command(const char *line, size_t len, uint32_t now_ms) {
         uint32_t total_inj = 0, frames_proc = 0, q_overflows = 0;
         uint8_t q_count = 0;
         smooth_get_stats(&total_inj, &frames_proc, &q_overflows, &q_count);
-        snprintf(resp, sizeof(resp), "KMBOX_INFO:hmode=%d,imode=%d,max=%d,vel=%d,qd=%d,qc=%d,inj=%lu,ovf=%lu",
+
+        // km.lock (timing fingerprint protection) observability
+        bool tlock_active = false;
+        int16_t tlock_budget = 0;
+        int32_t tlock_rate = 0;
+        timing_lock_get_stats(&tlock_active, &tlock_budget, &tlock_rate);
+        // km.forward (physical raw-report forwarding) observability
+        uint8_t fwd_depth = report_forward_depth();
+        uint32_t fwd_ovf = report_forward_overflow_count();
+        snprintf(resp, sizeof(resp), "KMBOX_INFO:hmode=%d,imode=%d,max=%d,vel=%d,qd=%d,qc=%d,inj=%lu,ovf=%lu,tlock=%d,bud=%d,rate=%ld,fwdq=%d,fwdo=%lu",
                  (int)smooth_get_humanization_mode(),
                  (int)smooth_get_inject_mode(),
                  (int)smooth_get_max_per_frame(),
@@ -849,7 +860,12 @@ static bool handle_text_command(const char *line, size_t len, uint32_t now_ms) {
                  (int)q_count,
                  (int)SMOOTH_QUEUE_SIZE,
                  (unsigned long)total_inj,
-                 (unsigned long)q_overflows);
+                 (unsigned long)q_overflows,
+                 (int)tlock_active,
+                 (int)tlock_budget,
+                 (long)tlock_rate,
+                 (int)fwd_depth,
+                 (unsigned long)fwd_ovf);
         kmbox_send_response(resp);
         return true;
     }

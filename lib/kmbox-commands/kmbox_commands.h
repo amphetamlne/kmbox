@@ -167,6 +167,14 @@ bool kmbox_try_drain_mouse_16(uint8_t last_sent_buttons,
                                uint8_t *buttons, int16_t *x, int16_t *y,
                                int8_t *wheel, int8_t *pan);
 
+// Quota-limited variant of kmbox_try_drain_mouse_16() for the km.lock burst
+// guard: drains at most budget_px pixels of XY magnitude per call, leaving
+// the remainder in the accumulators for subsequent frames.
+// budget_px <= 0 degrades to the unlimited full drain.
+bool kmbox_try_drain_mouse_16_quota(uint8_t last_sent_buttons, int16_t budget_px,
+                                     uint8_t *buttons, int16_t *x, int16_t *y,
+                                     int8_t *wheel, int8_t *pan);
+
 // Batched accumulation: single spinlock for all axes.
 // Symmetric counterpart to kmbox_try_drain_mouse_16().
 // Called from Core1 physical mouse handler to reduce spinlock roundtrips.

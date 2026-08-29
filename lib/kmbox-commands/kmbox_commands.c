@@ -8,6 +8,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <math.h>
 #include "hardware/sync.h"
 
 //--------------------------------------------------------------------+
@@ -1409,9 +1410,13 @@ uint8_t kmbox_get_current_buttons(void)
            (g_kmbox_state.buttons[KMBOX_BUTTON_SIDE2].is_pressed  ? 0x10 : 0);
 }
 
-bool kmbox_try_drain_mouse_16(uint8_t last_sent_buttons,
-                               uint8_t *buttons, int16_t *x, int16_t *y,
-                               int8_t *wheel, int8_t *pan)
+// Shared drain implementation. budget_px <= 0 = unlimited (full drain,
+// byte-identical to legacy behavior); budget_px > 0 caps the drained XY
+// magnitude per call (km.lock burst guard), leaving the remainder in the
+// accumulators for subsequent frames.
+static bool try_drain_mouse_16_impl(uint8_t last_sent_buttons, int16_t budget_px,
+                                     uint8_t *buttons, int16_t *x, int16_t *y,
+                                     int8_t *wheel, int8_t *pan)
 {
     // Build button byte (no lock needed — single-core writes)
     uint8_t button_byte =
@@ -1438,11 +1443,34 @@ bool kmbox_try_drain_mouse_16(uint8_t last_sent_buttons,
         return false;
     }
 
-    // Drain movement accumulators
-    *x = (int16_t)g_kmbox_state.mouse_x_accumulator;
-    g_kmbox_state.mouse_x_accumulator = 0;
-    *y = (int16_t)g_kmbox_state.mouse_y_accumulator;
-    g_kmbox_state.mouse_y_accumulator = 0;
+    // Drain movement accumulators (optionally quota-limited)
+    int32_t ax = g_kmbox_state.mouse_x_accumulator;
+    int32_t ay = g_kmbox_state.mouse_y_accumulator;
+    int32_t mag2 = ax * ax + ay * ay;
+    if (budget_px > 0 && mag2 > (int32_t)budget_px * budget_px) {
+        // Quota drain: take at most budget_px pixels this frame along the
+        // current direction; remainder stays in the accumulators so the
+        // burst flattens into a ballistic multi-frame delivery.
+        float mag = sqrtf((float)mag2);
+        float scale = (float)budget_px / mag;
+        int32_t dx = (int32_t)((float)ax * scale);
+        int32_t dy = (int32_t)((float)ay * scale);
+        if (dx == 0 && dy == 0) {
+            // Guarantee forward progress along the dominant axis so tiny
+            // residuals can't stall behind the quota gate.
+            if ((ax < 0 ? -ax : ax) >= (ay < 0 ? -ay : ay)) dx = (ax > 0) ? 1 : -1;
+            else                                             dy = (ay > 0) ? 1 : -1;
+        }
+        g_kmbox_state.mouse_x_accumulator = ax - dx;
+        g_kmbox_state.mouse_y_accumulator = ay - dy;
+        *x = (int16_t)dx;
+        *y = (int16_t)dy;
+    } else {
+        *x = (int16_t)ax;
+        g_kmbox_state.mouse_x_accumulator = 0;
+        *y = (int16_t)ay;
+        g_kmbox_state.mouse_y_accumulator = 0;
+    }
 
     // Drain wheel (clamp to int8 range, keep remainder)
     int16_t w_acc = g_kmbox_state.wheel_accumulator;
@@ -1472,6 +1500,23 @@ bool kmbox_try_drain_mouse_16(uint8_t last_sent_buttons,
 
     spin_unlock(g_acc_spinlock, irq);
     return true;
+}
+
+bool kmbox_try_drain_mouse_16(uint8_t last_sent_buttons,
+                               uint8_t *buttons, int16_t *x, int16_t *y,
+                               int8_t *wheel, int8_t *pan)
+{
+    return try_drain_mouse_16_impl(last_sent_buttons, 0,
+                                   buttons, x, y, wheel, pan);
+}
+
+bool kmbox_try_drain_mouse_16_quota(uint8_t last_sent_buttons, int16_t budget_px,
+                                     uint8_t *buttons, int16_t *x, int16_t *y,
+                                     int8_t *wheel, int8_t *pan)
+{
+    // budget_px <= 0 degrades to the unlimited full drain
+    return try_drain_mouse_16_impl(last_sent_buttons, budget_px,
+                                   buttons, x, y, wheel, pan);
 }
 
 void kmbox_set_axis_lock(bool lock_x, bool lock_y)
