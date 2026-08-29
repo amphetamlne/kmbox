@@ -62,6 +62,11 @@
 #define NEOPIXEL_POWER          (20u)   // Neopixel power pin (255 = not used/always on)
 #endif
 
+// 第二颗 WS2812 LED 数据引脚 (仅 MuLuoxing 板使用; 255 = 未启用)
+#ifndef PIN_NEOPIXEL_2
+#define PIN_NEOPIXEL_2          (255u)
+#endif
+
 #define PIN_BUTTON              (7u)    // Reset button pin
 
 // UART configuration for KMBox serial communication with RP2350 Bridge
@@ -337,7 +342,7 @@
 
 // 全局 WS2812 亮度上限 (0-255)，降低此值可整体调暗 LED
 // 255 = 满亮度, 128 ≈ 50%, 80 ≈ 31% (柔和)
-#define NEOPIXEL_GLOBAL_BRIGHTNESS_CAP  10
+#define NEOPIXEL_GLOBAL_BRIGHTNESS_CAP  20
 
 // WS2812 configuration
 #define WS2812_FREQUENCY_HZ             800000

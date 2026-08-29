@@ -69,7 +69,7 @@ pico_board_cmake_set(PICO_PLATFORM, rp2350)
 #endif
 
 #ifndef PICO_DEFAULT_WS2812_POWER_PIN
-#define PICO_DEFAULT_WS2812_POWER_PIN -1
+#define PICO_DEFAULT_WS2812_POWER_PIN 255
 #endif
 
 // --- PIO USB ---
