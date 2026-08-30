@@ -1,0 +1,35 @@
+PIOKMbox.c
+  s_eaf00b3ce73c37::t_e606b793d22b46 124
+usb_hid.h
+  s_eaf00b3ce73c37::t_1f6256fea07114 70-72
+defines.h
+  s_eaf00b3ce73c37::t_2955257d3433f6 259
+  s_eaf00b3ce73c37::t_e6b8b2a3975dbe 247-253,257
+  s_eaf00b3ce73c37::t_c042bf3b4863e8 255
+usb_hid.c
+  s_eaf00b3ce73c37::t_7c39721c345ebd 3488-3493,3517,3549
+  s_eaf00b3ce73c37::t_0bd22932b2e1b7 3477,3480-3482,3485-3487,3540,3550
+  s_eaf00b3ce73c37::t_0831ed48684b36 1555-1564
+  s_eaf00b3ce73c37::t_3165677d05d4eb 3494-3503,3506
+  s_eaf00b3ce73c37::t_019be4d106df37 3558,3562-3575,3593
+  s_eaf00b3ce73c37::t_8171bce2dc2d1a 3522-3535
+  s_eaf00b3ce73c37::t_4f79007953e1d6 480-482
+  s_eaf00b3ce73c37::t_0560b60688997f 3545-3548
+  s_eaf00b3ce73c37::t_8d419746230eb5 3518-3521,3536-3539,3541-3544
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "eda79eaf52f41407bc3e99977208afe4f0df9816",
+  "prompts": {},
+  "sessions": {
+    "s_eaf00b3ce73c37": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4daaeb9b-d334-4ced-946e-29b05b928c5a",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "龙超 <longchao@onerobot.com>"
+    }
+  }
+}
