@@ -1,0 +1,21 @@
+usb_hid.c
+  s_eaf00b3ce73c37::t_6bbda4c9bdf5d5 3472-3474
+  s_eaf00b3ce73c37::t_5f9a47838967d5 3444-3456,3458
+  s_eaf00b3ce73c37::t_6449f5c4c6d1e2 3529-3533
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "5acc32b33df3accb619de2441a7f8f0cc8a385bd",
+  "prompts": {},
+  "sessions": {
+    "s_eaf00b3ce73c37": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4daaeb9b-d334-4ced-946e-29b05b928c5a",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "龙超 <longchao@onerobot.com>"
+    }
+  }
+}
