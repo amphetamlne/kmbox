@@ -1,0 +1,30 @@
+defines.h
+  s_eaf00b3ce73c37::t_53626794ad8902 241-244
+  s_eaf00b3ce73c37::t_b6483a6f825904 247-254
+  s_eaf00b3ce73c37::t_11880d0da5ccf1 58-62
+  s_eaf00b3ce73c37::t_8f9203a15461ff 255
+led_control.c
+  s_eaf00b3ce73c37::t_3a08f48428c607 294-296,303,313
+  s_eaf00b3ce73c37::t_cbf9487f5d5498 351,353-355
+CMakeLists.txt
+  s_eaf00b3ce73c37::t_1985e965ed8972 34-36
+  s_eaf00b3ce73c37::t_4cb68fd3ee1a94 188
+  s_eaf00b3ce73c37::t_1132cffa2be9c7 71
+  s_eaf00b3ce73c37::t_79d711503f246d 61-64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "4de593fca3d9f3e0548baaf1b469443ead84dd71",
+  "prompts": {},
+  "sessions": {
+    "s_eaf00b3ce73c37": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4daaeb9b-d334-4ced-946e-29b05b928c5a",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "龙超 <longchao@onerobot.com>"
+    }
+  }
+}
