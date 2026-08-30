@@ -61,6 +61,17 @@ bool usb_host_stack_reset(void);
 bool usb_stacks_reset(void);
 void usb_stack_error_check(void);
 
+// USB Host 首次枚举自愈：开机等待窗口内若未枚举出任何 HID 设备，自动补发一次
+// 等效于物理 Reset 键的芯片复位（规避 Waveshare RP2350-USB-A 板 R13 电阻缺陷）。
+// 应在 core0 主循环中周期性调用（例如随 watchdog_task 一起）。
+void usb_host_enum_watchdog_task(void);
+
+// USB Host 运行期热插拔自愈：鼠标已连接期间周期性发起一次异步存活探测（控制
+// 传输），真实协议层连续失败即判定物理已拔出，自动补发一次芯片复位以便重新
+// 插入的设备能被正常枚举（规避 R13 缺陷导致断开事件在总线电平层面探测不到）。
+// 必须在 core1 主循环（tuh_task 所在核）中周期性调用。
+void usb_host_liveness_watchdog_task(void);
+
 //--------------------------------------------------------------------+
 // USB DESCRIPTORS
 //--------------------------------------------------------------------+

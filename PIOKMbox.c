@@ -120,6 +120,10 @@ static void core1_task_loop(void) {
         
         tuh_task();
 
+        // USB Host 运行期热插拔自愈：鼠标拔出后 R13 缺陷导致断开事件在总线电平层
+        // 面探测不到，用主动存活探测代替（规避 Waveshare 板缺陷，见 usb_hid.h 说明）
+        usb_host_liveness_watchdog_task();
+
         // Drain SET_REPORT passthrough queue (device→host vendor reports)
         hid_host_task();
 
@@ -364,6 +368,9 @@ static void main_application_loop(void) {
         if (task_flags & WATCHDOG_FLAG) {
             watchdog_task();
             watchdog_core0_heartbeat();
+            // USB Host 首次枚举自愈：开机等待窗口后仍无 HID 设备时自动补发一次
+            // 等效于物理 Reset 键的复位（规避 Waveshare 板 R13 电阻缺陷）
+            usb_host_enum_watchdog_task();
             // Process deferred flash saves at watchdog interval (~100ms)
             // so saves happen ~2s after mode change (SAVE_DEFER_MS),
             // not at the 60s status boundary where the surprise 100ms

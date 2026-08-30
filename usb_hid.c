@@ -22,6 +22,7 @@
 #include <string.h>             // For strcpy, strlen, memset
 #include <math.h>                // For sqrtf, roundf
 #include "pico/rand.h"           // For get_rand_32() hardware TRNG
+#include "hardware/watchdog.h"   // For watchdog_reboot() — USB host enum self-heal
 
 uint16_t attached_vid = 0;
 uint16_t attached_pid = 0;
@@ -3393,6 +3394,131 @@ void usb_stack_error_check(void)
         {
             usb_error_tracker.host_error_state = true;
         }
+    }
+#endif
+}
+
+// USB Host 首次枚举自愈（软件规避 Waveshare RP2350-USB-A 板 R13 D+ 上拉电阻缺陷，
+// 见 defines.h 中 USB_HOST_ENUM_* 的说明）。
+//
+// 只在开机后的一次性等待窗口内检测："PIO-USB 主机口已初始化，但等待超时后仍未
+// 枚举出任何 HID 设备"。一旦命中，用 watchdog_reboot() 触发一次完整芯片复位——
+// 效果等同于用户手动按下板载物理 Reset 键，会重新执行 pio_usb_bus_init()，让
+// PIO-USB 重新采样总线，从而摆脱因 R13 造成的"已连接但从未完成枚举"卡死状态。
+// 用 watchdog_hw->scratch[] 计数限制每次断电重启最多自动补发一次，避免在真的
+// 没有插任何设备时无限重启。
+void usb_host_enum_watchdog_task(void)
+{
+#if PIO_USB_AVAILABLE
+    static bool boot_time_captured = false;
+    static uint32_t boot_time_ms = 0;
+    static bool done_for_this_boot = false;  // 本次开机只判定一次
+
+    if (done_for_this_boot) {
+        return;
+    }
+
+    if (!boot_time_captured) {
+        boot_time_ms = to_ms_since_boot(get_absolute_time());
+        boot_time_captured = true;
+    }
+
+    // Xbox 模式走独立的挂载路径，不纳入本检测
+    if (g_xbox_mode) {
+        return;
+    }
+
+    if (mounted_hid_itf_count > 0) {
+        // 本次开机枚举成功：清空重试计数，下次断电重启重新获得完整预算
+        watchdog_hw->scratch[USB_HOST_ENUM_RETRY_SCRATCH_IDX] = 0;
+        done_for_this_boot = true;
+        return;
+    }
+
+    const uint32_t now = to_ms_since_boot(get_absolute_time());
+    if ((now - boot_time_ms) < USB_HOST_ENUM_TIMEOUT_MS) {
+        return; // 仍在等待窗口内
+    }
+
+    done_for_this_boot = true; // 无论是否触发复位，本次开机都不再重复判定
+
+    const uint32_t reboot_count = watchdog_hw->scratch[USB_HOST_ENUM_RETRY_SCRATCH_IDX];
+    if (reboot_count >= USB_HOST_ENUM_MAX_AUTO_REBOOTS) {
+        // 已用完自动重试预算——很可能本来就没有插设备，放弃自愈以避免重启循环
+        return;
+    }
+
+    watchdog_hw->scratch[USB_HOST_ENUM_RETRY_SCRATCH_IDX] = reboot_count + 1;
+    watchdog_reboot(0, 0, 10);
+#endif
+}
+
+#if PIO_USB_AVAILABLE
+// 运行期热插拔存活探测：真实拔出鼠标时 R13 缺陷会让总线电平假装"仍然连接"，
+// tuh_hid_umount_cb 永远不会触发（见 defines.h 中 USB_HOST_LIVENESS_* 说明）。
+// 用一次异步 GET_DEVICE_DESCRIPTOR 控制传输代替被动的总线空闲检测：设备真的
+// 不在了，USB 协议层的握手会真实超时/失败，这个信号不受 R13 影响。
+static bool liveness_probe_inflight = false;
+static uint8_t liveness_fail_count = 0;
+static uint32_t liveness_last_probe_ms = 0;
+static uint8_t liveness_probe_buf[8];
+
+static void usb_host_liveness_probe_cb(tuh_xfer_t *xfer)
+{
+    liveness_probe_inflight = false;
+
+    if (xfer->result == XFER_RESULT_SUCCESS) {
+        liveness_fail_count = 0;
+        return;
+    }
+
+    liveness_fail_count++;
+    if (liveness_fail_count < USB_HOST_LIVENESS_FAIL_THRESHOLD) {
+        return;
+    }
+
+    // 连续多次真实协议层失败——判定为物理已拔出，补一次芯片复位以便重新枚举
+    const uint32_t reboot_count = watchdog_hw->scratch[USB_HOST_LIVENESS_RETRY_SCRATCH_IDX];
+    if (reboot_count >= USB_HOST_LIVENESS_MAX_AUTO_REBOOTS) {
+        // 预算用尽——可能是硬件真的故障，放弃自愈以避免无限重启
+        return;
+    }
+
+    watchdog_hw->scratch[USB_HOST_LIVENESS_RETRY_SCRATCH_IDX] = reboot_count + 1;
+    watchdog_reboot(0, 0, 10);
+}
+#endif
+
+// 应在 core1 主循环（tuh_task 所在核）中周期性调用：仅在已识别到鼠标连接时，
+// 才周期性发起一次存活探测；探测本身是异步的，不会阻塞 core1 的其他任务。
+void usb_host_liveness_watchdog_task(void)
+{
+#if PIO_USB_AVAILABLE
+    if (g_xbox_mode || liveness_probe_inflight) {
+        return;
+    }
+
+    if (!connection_state.mouse_connected) {
+        liveness_fail_count = 0; // 未连接时不累积失败计数
+        return;
+    }
+
+    const uint32_t now = to_ms_since_boot(get_absolute_time());
+    if ((now - liveness_last_probe_ms) < USB_HOST_LIVENESS_PROBE_INTERVAL_MS) {
+        return;
+    }
+    liveness_last_probe_ms = now;
+
+    const uint8_t dev_addr = connection_state.mouse_dev_addr;
+    if (dev_addr == 0) {
+        return;
+    }
+
+    liveness_probe_inflight = true;
+    if (!tuh_descriptor_get_device(dev_addr, liveness_probe_buf, sizeof(liveness_probe_buf),
+                                    usb_host_liveness_probe_cb, 0)) {
+        // 控制端点当前忙（比如枚举流程还没走完），本轮放弃，下个周期再试
+        liveness_probe_inflight = false;
     }
 #endif
 }

@@ -230,6 +230,33 @@
 #define USB_ERROR_CHECK_INTERVAL_MS     1000    // How often to check for USB errors
 #define USB_STACK_ERROR_THRESHOLD       50      // Number of consecutive errors before reset
 
+// USB Host 首次枚举自愈（软件规避 Waveshare RP2350-USB-A 板载 R13 D+ 上拉电阻缺陷）：
+// 该板 Host 口 D+ 上出厂焊接了一颗本应仅用于设备模式的 1.5K 上拉电阻（见
+// boards/waveshare_rp2350_usb_a.h），会让 PIO-USB 的总线态识别在冷启动时卡死于
+// "已连接但从未完成枚举"，且因 D+ 永远拉高、断开检测（依赖 SE0）也永远不会触发，
+// 只有芯片级复位（重新执行 pio_usb_bus_init）才能让其重新采样总线并恢复。
+// 下面两个常量让固件在检测到该卡死状态时，自动补一次等效于物理 Reset 键的芯片复位，
+// 免除人工按键；真正根治方案仍是拆除板上的 R13（Waveshare 官方 FAQ 建议）。
+#define USB_HOST_ENUM_TIMEOUT_MS        5000    // 开机后等待 HID 设备枚举成功的时间
+#define USB_HOST_ENUM_MAX_AUTO_REBOOTS  1       // 每次断电重启后，最多自动补发一次芯片复位
+#define USB_HOST_ENUM_RETRY_SCRATCH_IDX 6       // watchdog_hw->scratch[] 索引（避开 SDK watchdog_enable 占用的 [4]）
+
+// USB Host 运行期热插拔自愈：
+// R13 缺陷不仅让"从未连接"卡死，同样会让"真实拔出"时的 SE0 断开检测永远不触发
+// （D+ 被 R13 强行拉高，拔掉鼠标后总线电平仍呈现类似 FS_IDLE 的假"已连接"状态）。
+// 因此 tuh_hid_umount_cb 在真实拔出时不会被调用，PIO-USB 内部 root->connected
+// 会一直卡在 true，导致重新插入也不会被识别（!root->connected 这个重连条件永远不满足）。
+// 由于断开事件在硬件层面就采不到，只能用主动探测代替被动检测：周期性对鼠标的
+// 设备地址发起一次异步控制传输（读取设备描述符），依赖 USB 协议层的真实握手/超时
+// 机制（而非总线空闲电平）判断设备是否还在。连续失败达到阈值即认为已物理拔出，
+// 补发一次等效于物理 Reset 键的芯片复位，让重新插入的设备能被正常重新枚举。
+// 该重启预算与开机自愈（USB_HOST_ENUM_RETRY_SCRATCH_IDX）使用不同的 scratch 槽位，
+// 避免互相占用彼此的重试次数。
+#define USB_HOST_LIVENESS_PROBE_INTERVAL_MS   2000    // 存活探测周期
+#define USB_HOST_LIVENESS_FAIL_THRESHOLD      3       // 连续探测失败几次判定为物理断开
+#define USB_HOST_LIVENESS_MAX_AUTO_REBOOTS    5       // 每次断电周期内，运行期热插拔自愈最多重启次数（防止硬件真故障时无限重启）
+#define USB_HOST_LIVENESS_RETRY_SCRATCH_IDX   7       // watchdog_hw->scratch[] 索引（与开机自愈的 [6] 区分）
+
 // USB descriptor configuration
 #define MAX_DEVICE_HID_INTERFACES       4       // Max HID interfaces to mirror (matches CFG_TUD_HID)
 #define MIRROR_ITF_DESC_MAX             512     // Max HID report descriptor per non-mouse interface
