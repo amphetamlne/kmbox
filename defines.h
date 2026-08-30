@@ -55,16 +55,16 @@
 #ifndef PIN_LED
 #define PIN_LED                 (13u)   // Status LED pin
 #endif
+// 状态 LED 是否随 USB 设备挂载状态闪烁；某些板子（如 MuLuoxing）板载 LED
+// 更适合常亮，不闪烁
+#ifndef STATUS_LED_BLINK_ENABLED
+#define STATUS_LED_BLINK_ENABLED 1
+#endif
 #ifndef PIN_NEOPIXEL
 #define PIN_NEOPIXEL            (21u)   // Neopixel data pin
 #endif
 #ifndef NEOPIXEL_POWER
 #define NEOPIXEL_POWER          (20u)   // Neopixel power pin (255 = not used/always on)
-#endif
-
-// 第二颗 WS2812 LED 数据引脚 (仅 MuLuoxing 板使用; 255 = 未启用)
-#ifndef PIN_NEOPIXEL_2
-#define PIN_NEOPIXEL_2          (255u)
 #endif
 
 #define PIN_BUTTON              (7u)    // Reset button pin
@@ -238,8 +238,20 @@
 // 下面两个常量让固件在检测到该卡死状态时，自动补一次等效于物理 Reset 键的芯片复位，
 // 免除人工按键；真正根治方案仍是拆除板上的 R13（Waveshare 官方 FAQ 建议）。
 #define USB_HOST_ENUM_TIMEOUT_MS        5000    // 开机后等待 HID 设备枚举成功的时间
-#define USB_HOST_ENUM_MAX_AUTO_REBOOTS  1       // 每次断电重启后，最多自动补发一次芯片复位
+#define USB_HOST_ENUM_MAX_AUTO_REBOOTS  2000    // 检测不到设备时最多自动补发这么多次复位（原为 1，只给一次机会——
+                                                 // 如果用户没能在那次开机的等待窗口内插回设备，就再也不会重试，
+                                                 // 必须手动断电；放大预算后会每隔 USB_HOST_ENUM_TIMEOUT_MS 持续
+                                                 // 自动重启重试，直到设备被插入或预算耗尽，日常使用不会打满）
 #define USB_HOST_ENUM_RETRY_SCRATCH_IDX 6       // watchdog_hw->scratch[] 索引（避开 SDK watchdog_enable 占用的 [4]）
+
+// 开机枚举自愈的"成功"判定默认是"随便哪个 HID 接口挂载上了就算数"（mounted_hid_itf_count > 0）。
+// 但如果鼠标和键盘是分别独立枚举的（例如 muluoxing 板通过 Hub 同时接了鼠标和键盘），
+// 拔鼠标触发复位重启后，键盘会先重新枚举成功，导致这个判定提前满足、直接放弃重试——
+// 鼠标其实还没插回去也不会再等了，卡在"键盘已连接"的状态。用这个 scratch 位记录
+// "这次复位是专门为了等鼠标重新出现"，成功判定改成必须鼠标本身连上，而不是任意 HID 设备。
+#define USB_HOST_RECOVERY_TARGET_SCRATCH_IDX  5       // watchdog_hw->scratch[] 索引
+#define USB_HOST_RECOVERY_TARGET_NONE         0       // 未指定——走原来的"任意 HID 设备"判定（真正的开机冷启动自愈）
+#define USB_HOST_RECOVERY_TARGET_MOUSE        1       // 专门等鼠标重新连接（运行期热插拔自愈触发的复位）
 
 // USB Host 运行期热插拔自愈：
 // R13 缺陷不仅让"从未连接"卡死，同样会让"真实拔出"时的 SE0 断开检测永远不触发

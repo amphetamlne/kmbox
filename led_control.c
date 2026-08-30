@@ -119,15 +119,6 @@ static volatile uint32_t s_led_activity_expire_us = 0;
 static int               s_led_dma_chan = -1;
 static struct repeating_timer s_led_refresh_timer;
 
-#if PIN_NEOPIXEL_2 != 255
-// 第二颗 WS2812 LED — 独立 shadow register + DMA + 定时器，始终输出绿色
-static volatile uint32_t s_led2_shadow_grb __attribute__((aligned(4))) = 0;
-static int               s_led2_dma_chan = -1;
-static struct repeating_timer s_led2_refresh_timer;
-static uint              s_led2_sm = 0;
-static PIO               s_led2_pio = NULL;
-#endif
-
 /**
  * @brief Repeating timer callback (~30 Hz) — pushes shadow register to PIO via DMA.
  *        Runs in IRQ context; the DMA transfer itself is fire-and-forget.
@@ -184,47 +175,6 @@ static void led_dma_refresh_init(void)
     // Start repeating timer at ~30 Hz (every 33ms) — runs from hardware alarm pool
     add_repeating_timer_ms(-33, led_refresh_timer_callback, NULL, &s_led_refresh_timer);
 }
-
-#if PIN_NEOPIXEL_2 != 255
-/**
- * @brief LED2 DMA 刷新定时器回调 (~30 Hz)
- */
-static bool led2_refresh_timer_callback(struct repeating_timer *t)
-{
-    (void)t;
-    if (s_led2_shadow_grb != 0 && s_led2_dma_chan >= 0 && !dma_channel_is_busy(s_led2_dma_chan)) {
-        dma_channel_set_trans_count(s_led2_dma_chan, 1, false);
-        dma_channel_set_read_addr(s_led2_dma_chan, (const volatile void *)&s_led2_shadow_grb, true);
-    }
-    return true;
-}
-
-/**
- * @brief 初始化 LED2 的 DMA 刷新系统
- */
-static void led2_dma_refresh_init(void)
-{
-    s_led2_dma_chan = dma_claim_unused_channel(false);
-    if (s_led2_dma_chan < 0) return;
-
-    dma_channel_config c = dma_channel_get_default_config(s_led2_dma_chan);
-    channel_config_set_transfer_data_size(&c, DMA_SIZE_32);
-    channel_config_set_read_increment(&c, false);
-    channel_config_set_write_increment(&c, false);
-    channel_config_set_dreq(&c, DREQ_FORCE);
-
-    dma_channel_configure(
-        s_led2_dma_chan,
-        &c,
-        &s_led2_pio->txf[s_led2_sm],
-        (const volatile void *)&s_led2_shadow_grb,
-        1,
-        false
-    );
-
-    add_repeating_timer_ms(-33, led2_refresh_timer_callback, NULL, &s_led2_refresh_timer);
-}
-#endif
 
 // Status configuration lookup table
 static const status_config_t g_status_configs[] = {
@@ -341,13 +291,16 @@ static bool is_time_elapsed(uint32_t start_time, uint32_t duration_ms)
 
 void led_blinking_task(void)
 {
+#if !STATUS_LED_BLINK_ENABLED
+    return; // 常亮不闪（如 MuLuoxing 板载 LED）
+#else
     // Skip if blinking is disabled
     if (g_led_controller.blink_interval_ms == 0) {
         return;
     }
 
     uint32_t current_time = get_current_time_ms();
-    
+
     // Check if it's time to toggle
     if (!is_time_elapsed(g_led_controller.last_blink_time, g_led_controller.blink_interval_ms)) {
         return;
@@ -357,6 +310,7 @@ void led_blinking_task(void)
     g_led_controller.last_blink_time = current_time;
     g_led_controller.led_state = !g_led_controller.led_state;
     gpio_put(PIN_LED, g_led_controller.led_state);
+#endif
 }
 
 void led_set_blink_interval(uint32_t interval_ms)
@@ -394,7 +348,11 @@ void neopixel_init(void)
     // Initialize LED pin
     gpio_init(PIN_LED);
     gpio_set_dir(PIN_LED, GPIO_OUT);
+#if STATUS_LED_BLINK_ENABLED
     gpio_put(PIN_LED, 0);
+#else
+    gpio_put(PIN_LED, 1); // 常亮
+#endif
 
     // Initialize neopixel power pin but keep it OFF during early boot
     // NEOPIXEL_POWER = 255 means no separate power pin (always powered)
@@ -444,30 +402,6 @@ void neopixel_enable_power(void)
 
     // Initialize passive DMA LED refresh (timer + DMA channel)
     led_dma_refresh_init();
-
-#if PIN_NEOPIXEL_2 != 255
-    // --- 第二颗 LED 初始化 (独立 PIO SM, 始终绿色) ---
-    s_led2_pio = g_led_controller.pio_instance;
-    {
-        uint sm2 = (uint)-1;
-        for (uint i = 1; i < NUM_PIO_STATE_MACHINES; i++) {
-            if (!pio_sm_is_claimed(s_led2_pio, i)) {
-                sm2 = i;
-                break;
-            }
-        }
-        if (sm2 != (uint)-1) {
-            s_led2_sm = sm2;
-            ws2812_program_init(s_led2_pio, sm2, offset, PIN_NEOPIXEL_2, WS2812_FREQUENCY_HZ, false);
-            // 写入常绿 (RGB 0x00FF00)
-            uint32_t grb = neopixel_rgb_to_grb(0x00FF00);
-            uint32_t shifted = grb << WS2812_RGB_SHIFT;
-            s_led2_shadow_grb = shifted;
-            pio_sm_put(s_led2_pio, sm2, shifted);
-            led2_dma_refresh_init();
-        }
-    }
-#endif
 
     (void)0; // suppressed init completion log
 }

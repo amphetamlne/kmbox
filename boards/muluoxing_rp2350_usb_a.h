@@ -52,8 +52,6 @@ pico_board_cmake_set(PICO_PLATFORM, rp2350)
 
 // WS2812 RGB LED (3V3 供电, 无独立电源引脚)
 #define MULUOXING_RP2350_USB_A_WS2812_PIN       16
-// 第二颗 WS2812 RGB LED (Type-C 口右侧, 经串联电阻)
-#define MULUOXING_RP2350_USB_A_WS2812_PIN_2     0
 
 // --- UART ---
 #ifndef PICO_DEFAULT_UART

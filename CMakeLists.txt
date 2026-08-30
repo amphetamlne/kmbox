@@ -31,13 +31,15 @@ set(PICO_BOARD waveshare_rp2350_usb_a CACHE STRING "Board type")
 set(PICO_BOARD_HEADER_DIRS ${CMAKE_CURRENT_LIST_DIR}/boards)
 
 # 根据开发板类型设置对应的引脚配置
+# 状态 LED 是否随 USB 设备挂载状态闪烁（默认启用），各板可在下方覆盖
+set(STATUS_LED_BLINK 1 CACHE STRING "Status LED blinks with USB mount state (1=blink, 0=steady on)")
+
 if(PICO_BOARD STREQUAL "adafruit_metro_rp2350")
     set(USB_HOST_DP_PIN 32 CACHE STRING "USB Host D+ pin")
     set(USB_HOST_DM_PIN 33 CACHE STRING "USB Host D- pin")
     set(USB_HOST_5V_PIN 29 CACHE STRING "USB Host 5V power pin")
     set(LED_PIN 23 CACHE STRING "Status LED pin")
     set(NEOPIXEL_PIN 25 CACHE STRING "NeoPixel data pin")
-    set(NEOPIXEL_PIN_2 255 CACHE STRING "NeoPixel data pin 2 (disabled)")
     set(NEOPIXEL_POWER_PIN 255 CACHE STRING "NeoPixel power pin (255=not used)")
     message(STATUS "Configuring for Adafruit Metro RP2350 - USB Host on GPIO32/33")
 elseif(PICO_BOARD STREQUAL "waveshare_rp2350_usb_a")
@@ -50,22 +52,23 @@ elseif(PICO_BOARD STREQUAL "waveshare_rp2350_usb_a")
     set(USB_HOST_5V_PIN 15 CACHE STRING "USB Host 5V power pin (dummy, VBUS always on)")
     set(LED_PIN 17 CACHE STRING "Status LED pin (dummy, no LED on board)")
     set(NEOPIXEL_PIN 16 CACHE STRING "NeoPixel data pin")
-    set(NEOPIXEL_PIN_2 255 CACHE STRING "NeoPixel data pin 2 (disabled)")
     set(NEOPIXEL_POWER_PIN 255 CACHE STRING "NeoPixel power pin (255=not used)")
     message(STATUS "Configuring for Waveshare RP2350-USB-A - USB Host on GPIO12/13")
 elseif(PICO_BOARD STREQUAL "muluoxing_rp2350_usb_a")
     # 多乐星（MILLIONXING）RP2350 USB-A（Pico 2 兼容引脚，RP2350A，4MB Flash）：
     # USB-A 接口 D+=GPIO12 / D-=GPIO13（参照 Waveshare RP2350-USB-A 参考设计），
     # VBUS 硬连线到 VSYS（无 5V 使能 GPIO -> 使用仅内部可访问的 GPIO23），
-    # WS2812 接 GPIO16，板载 LED 接 GPIO25（经引脚图确认）
-    #（GPIO23/25 在 Pico 2 兼容排针上未引出）。
+    # WS2812 接 GPIO16
+    #（GPIO23 在 Pico 2 兼容排针上未引出）。
+    # 已移除板载第二颗 LED（GPIO25，PIO1 驱动 WS2812）：与 LED_PIN 复用同一引脚，
+    # 怀疑其信号干扰经板级布线耦合到 USB Host D+/D-，导致该板独有的热插拔卡死问题。
     set(USB_HOST_DP_PIN 12 CACHE STRING "USB Host D+ pin")
     set(USB_HOST_DM_PIN 13 CACHE STRING "USB Host D- pin")
     set(USB_HOST_5V_PIN 23 CACHE STRING "USB Host 5V power pin (internal-only GPIO23, VBUS always on)")
     set(LED_PIN 25 CACHE STRING "Status LED pin (on-board LED)")
     set(NEOPIXEL_PIN 16 CACHE STRING "NeoPixel data pin")
-    set(NEOPIXEL_PIN_2 25 CACHE STRING "NeoPixel data pin 2 (second LED)")
     set(NEOPIXEL_POWER_PIN 255 CACHE STRING "NeoPixel power pin (255=not used)")
+    set(STATUS_LED_BLINK 0 CACHE STRING "Status LED blinks with USB mount state (1=blink, 0=steady on)" FORCE)
     message(STATUS "Configuring for MuLuoxing RP2350-USB-A - USB Host on GPIO12/13")
 else()
     # 默认配置：Pico/Pico2，PIO USB 使用常见 GPIO16/17
@@ -74,7 +77,6 @@ else()
     set(USB_HOST_5V_PIN 18 CACHE STRING "USB Host 5V power pin")
     set(LED_PIN 25 CACHE STRING "Status LED pin")
     set(NEOPIXEL_PIN 21 CACHE STRING "NeoPixel data pin")
-    set(NEOPIXEL_PIN_2 255 CACHE STRING "NeoPixel data pin 2 (disabled)")
     set(NEOPIXEL_POWER_PIN 20 CACHE STRING "NeoPixel power pin")
     message(STATUS "Configuring for ${PICO_BOARD} - USB Host on GPIO16/17")
 endif()
@@ -183,8 +185,8 @@ target_compile_definitions(PIOKMbox PRIVATE
         PIN_USB_HOST_DM=${USB_HOST_DM_PIN}
         PIN_USB_5V=${USB_HOST_5V_PIN}
         PIN_LED=${LED_PIN}
+        STATUS_LED_BLINK_ENABLED=${STATUS_LED_BLINK}
         PIN_NEOPIXEL=${NEOPIXEL_PIN}
-        PIN_NEOPIXEL_2=${NEOPIXEL_PIN_2}
         NEOPIXEL_POWER=${NEOPIXEL_POWER_PIN}
         ENABLE_XBOX_PASSTHROUGH=1
 )
