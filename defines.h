@@ -382,7 +382,10 @@
 
 // 全局 WS2812 亮度上限 (0-255)，降低此值可整体调暗 LED
 // 255 = 满亮度, 128 ≈ 50%, 80 ≈ 31% (柔和)
+// 各板 LED/漫射罩差异较大，可在 CMakeLists.txt 按板覆盖（NEOPIXEL_BRIGHTNESS 缓存变量）
+#ifndef NEOPIXEL_GLOBAL_BRIGHTNESS_CAP
 #define NEOPIXEL_GLOBAL_BRIGHTNESS_CAP  20
+#endif
 
 // WS2812 configuration
 #define WS2812_FREQUENCY_HZ             800000

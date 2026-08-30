@@ -34,6 +34,9 @@ set(PICO_BOARD_HEADER_DIRS ${CMAKE_CURRENT_LIST_DIR}/boards)
 # 状态 LED 是否随 USB 设备挂载状态闪烁（默认启用），各板可在下方覆盖
 set(STATUS_LED_BLINK 1 CACHE STRING "Status LED blinks with USB mount state (1=blink, 0=steady on)")
 
+# 主 WS2812 (GPIO16) 全局亮度上限 (0-255)，各板 LED/漫射罩差异较大，可在下方覆盖
+set(NEOPIXEL_BRIGHTNESS 20 CACHE STRING "Global NeoPixel brightness cap (0-255)")
+
 if(PICO_BOARD STREQUAL "adafruit_metro_rp2350")
     set(USB_HOST_DP_PIN 32 CACHE STRING "USB Host D+ pin")
     set(USB_HOST_DM_PIN 33 CACHE STRING "USB Host D- pin")
@@ -53,6 +56,7 @@ elseif(PICO_BOARD STREQUAL "waveshare_rp2350_usb_a")
     set(LED_PIN 17 CACHE STRING "Status LED pin (dummy, no LED on board)")
     set(NEOPIXEL_PIN 16 CACHE STRING "NeoPixel data pin")
     set(NEOPIXEL_POWER_PIN 255 CACHE STRING "NeoPixel power pin (255=not used)")
+    set(NEOPIXEL_BRIGHTNESS 12 CACHE STRING "Global NeoPixel brightness cap (0-255)" FORCE)
     message(STATUS "Configuring for Waveshare RP2350-USB-A - USB Host on GPIO12/13")
 elseif(PICO_BOARD STREQUAL "muluoxing_rp2350_usb_a")
     # 多乐星（MILLIONXING）RP2350 USB-A（Pico 2 兼容引脚，RP2350A，4MB Flash）：
@@ -69,6 +73,7 @@ elseif(PICO_BOARD STREQUAL "muluoxing_rp2350_usb_a")
     set(NEOPIXEL_PIN 16 CACHE STRING "NeoPixel data pin")
     set(NEOPIXEL_POWER_PIN 255 CACHE STRING "NeoPixel power pin (255=not used)")
     set(STATUS_LED_BLINK 0 CACHE STRING "Status LED blinks with USB mount state (1=blink, 0=steady on)" FORCE)
+    set(NEOPIXEL_BRIGHTNESS 40 CACHE STRING "Global NeoPixel brightness cap (0-255)" FORCE)
     message(STATUS "Configuring for MuLuoxing RP2350-USB-A - USB Host on GPIO12/13")
 else()
     # 默认配置：Pico/Pico2，PIO USB 使用常见 GPIO16/17
@@ -187,6 +192,7 @@ target_compile_definitions(PIOKMbox PRIVATE
         PIN_LED=${LED_PIN}
         STATUS_LED_BLINK_ENABLED=${STATUS_LED_BLINK}
         PIN_NEOPIXEL=${NEOPIXEL_PIN}
+        NEOPIXEL_GLOBAL_BRIGHTNESS_CAP=${NEOPIXEL_BRIGHTNESS}
         NEOPIXEL_POWER=${NEOPIXEL_POWER_PIN}
         ENABLE_XBOX_PASSTHROUGH=1
 )
