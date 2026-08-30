@@ -2,14 +2,14 @@
 # 用法: pwsh -NoProfile -ExecutionPolicy Bypass -File tools/build_kmbox_windows.ps1 [-Board <板名>] [-Mode <模式>]
 # 可选板名: waveshare_rp2350_usb_a / muluoxing_rp2350_usb_a（见 boards/ 目录）
 # 构建模式:
-#   full        - 全量模式：清理所有构建中间产物后重新构建（默认）
-#   incremental - 增量模式：仅清理编译输出，复用 CMake 配置和编译缓存
+#   incremental - 增量模式：仅清理编译输出，复用 CMake 配置和编译缓存（默认）
+#   full        - 全量模式：清理所有构建中间产物后重新构建
 # 说明: 顶部变量按默认安装位置编写，路径不同请直接修改。
 # 注意: 第三方依赖库及其下载缓存（_deps 中的源码包）始终保留，不会在清理中删除。
 param(
     [string]$Board = 'waveshare_rp2350_usb_a',
     [ValidateSet('full', 'incremental')]
-    [string]$Mode = 'full'
+    [string]$Mode = 'incremental'
 )
 $OutputEncoding = [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $ErrorActionPreference = 'Stop'
