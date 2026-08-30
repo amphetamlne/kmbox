@@ -1,0 +1,30 @@
+defines.h
+  s_eaf00b3ce73c37::t_e4bcae600617b6 244-259
+  s_eaf00b3ce73c37::t_325511cb0a380f 233-243
+usb_hid.h
+  s_eaf00b3ce73c37::t_158727e3354e47 64-68
+  s_eaf00b3ce73c37::t_4d5abd488d859a 69-74
+usb_hid.c
+  s_eaf00b3ce73c37::t_99bb66b22622da 3401-3455
+  s_eaf00b3ce73c37::t_53a41f13ade9c4 25
+  s_eaf00b3ce73c37::t_893b88b727423b 3456-3525
+PIOKMbox.c
+  s_eaf00b3ce73c37::t_3e3220a5ccbf21 371-373
+  s_eaf00b3ce73c37::t_a3809d09540529 123-126
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "ab881d94f4986ef2832a5efb23d5332f996ec1ff",
+  "prompts": {},
+  "sessions": {
+    "s_eaf00b3ce73c37": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4daaeb9b-d334-4ced-946e-29b05b928c5a",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "龙超 <longchao@onerobot.com>"
+    }
+  }
+}
