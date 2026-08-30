@@ -477,6 +477,9 @@ static inline float hid_rng_gaussian(void) {
 // Device management helpers
 static void handle_device_disconnection(uint8_t dev_addr);
 static void handle_hid_device_connection(uint8_t dev_addr, uint8_t itf_protocol);
+#if PIO_USB_AVAILABLE
+static void usb_host_liveness_trigger_reboot(void);
+#endif
 
 // Report processing helpers
 static bool process_keyboard_report_internal(const hid_keyboard_report_t *report);
@@ -1549,6 +1552,16 @@ static void handle_device_disconnection(uint8_t dev_addr)
     {
         connection_state.mouse_connected = false;
         connection_state.mouse_dev_addr = 0;
+
+#if PIO_USB_AVAILABLE
+        // 鼠标的断开也可能通过 TinyUSB 原生 umount 回调（端点级传输重试耗尽）
+        // 先于存活探测被发现——这条路径比存活探测的连续失败计数更快触发，
+        // 会导致 usb_host_liveness_watchdog_task() 因 mouse_connected 已经
+        // 是 false 而提前 return，探测/复位逻辑永远没机会跑到。这里直接补
+        // 一次复位，保证不管走哪条断开检测路径，硬件层 root->connected 都
+        // 会被尽快清零，重新插入才能被识别。
+        usb_host_liveness_trigger_reboot();
+#endif
     }
 
     if (dev_addr == connection_state.keyboard_dev_addr)
@@ -3461,23 +3474,37 @@ void usb_host_enum_watchdog_task(void)
 static bool liveness_probe_inflight = false;
 static uint8_t liveness_fail_count = 0;
 static uint32_t liveness_last_probe_ms = 0;
+static uint32_t liveness_probe_sent_ms = 0;
 static uint8_t liveness_probe_buf[8];
 
-static void usb_host_liveness_probe_cb(tuh_xfer_t *xfer)
+// 诊断用：探测失败一次闪一下橙色，方便在没有串口的情况下用肉眼确认探测机制
+// 是否真的在跑、是否真的探测到了失败（排查 muluoxing 上拔出后完全无反应的问题）
+static void usb_host_liveness_note_fail(void)
 {
-    liveness_probe_inflight = false;
-
-    if (xfer->result == XFER_RESULT_SUCCESS) {
-        liveness_fail_count = 0;
-        return;
-    }
-
     liveness_fail_count++;
-    if (liveness_fail_count < USB_HOST_LIVENESS_FAIL_THRESHOLD) {
+    neopixel_trigger_activity_flash_color(COLOR_USB_HOST_ONLY);
+}
+
+// 共享的复位触发逻辑：无论断开是通过存活探测的连续失败发现，还是通过
+// TinyUSB 原生 umount 回调（端点级传输重试耗尽）更快发现，都要补一次芯片
+// 复位——否则 PIO-USB 硬件层的 root->connected 标志（只能靠 R13 缺陷下几乎
+// 探测不到的 SE0 检测清零）会永远卡在 true，导致重新插入完全无法被识别。
+static void usb_host_liveness_trigger_reboot(void)
+{
+    // 去抖：同一次物理拔出会同时经过 tuh_hid_umount_cb 和 tuh_umount_cb 两条
+    // 回调路径，都会调用到 handle_device_disconnection() → 这里；R13 缺陷下
+    // 总线噪声还可能在枚举重试期间造成短时间内反复 mount/umount。没有冷却时间
+    // 的话，每一次都会立刻触发一次真实的芯片复位，短时间内堆积出"复位风暴"——
+    // 实测会导致 PIO-USB root port 最终再也起不来（卡绿灯），或桥接板因为主板
+    // 反复重启打断 UART 通信而进入自身的错误状态（卡红灯）。这里限制成同一个
+    // 冷却窗口内最多真正复位一次，多余的调用直接忽略。
+    static uint32_t last_reboot_trigger_ms = 0;
+    const uint32_t now = to_ms_since_boot(get_absolute_time());
+    if (last_reboot_trigger_ms != 0 && (now - last_reboot_trigger_ms) < USB_HOST_LIVENESS_REBOOT_COOLDOWN_MS) {
         return;
     }
+    last_reboot_trigger_ms = now;
 
-    // 连续多次真实协议层失败——判定为物理已拔出，补一次芯片复位以便重新枚举
     const uint32_t reboot_count = watchdog_hw->scratch[USB_HOST_LIVENESS_RETRY_SCRATCH_IDX];
     if (reboot_count >= USB_HOST_LIVENESS_MAX_AUTO_REBOOTS) {
         // 预算用尽——可能是硬件真的故障，放弃自愈以避免无限重启
@@ -3487,6 +3514,40 @@ static void usb_host_liveness_probe_cb(tuh_xfer_t *xfer)
     watchdog_hw->scratch[USB_HOST_LIVENESS_RETRY_SCRATCH_IDX] = reboot_count + 1;
     watchdog_reboot(0, 0, 10);
 }
+
+static void usb_host_liveness_probe_cb(tuh_xfer_t *xfer)
+{
+    liveness_probe_inflight = false;
+
+    // R13 缺陷下总线电平被强行拉成假"idle"，偶尔的线路噪声有一定概率被 PIO-USB
+    // 的接收状态机误判成一次"看起来合法"的短应答（凑巧对上 PID/长度），导致
+    // xfer->result 上报 SUCCESS，但内容其实是噪声，不是真的设备描述符。之前
+    // 只认 XFER_RESULT_SUCCESS 就把 fail_count 清零，遇到这种偶发误判就永远
+    // 攒不到 3 次连续失败，实机上表现为一直闪橙灯但从不触发复位。现在额外校验
+    // 返回内容是否真的像一份 Device Descriptor（长度、类型字段），不像就仍然
+    // 按失败计。
+    const bool looks_like_real_descriptor =
+        (xfer->result == XFER_RESULT_SUCCESS) &&
+        (xfer->actual_len >= 8) &&
+        (liveness_probe_buf[0] >= 8) &&           // bLength
+        (liveness_probe_buf[1] == TUSB_DESC_DEVICE); // bDescriptorType == 1
+
+    if (looks_like_real_descriptor) {
+        liveness_fail_count = 0;
+        return;
+    }
+
+    usb_host_liveness_note_fail();
+    if (liveness_fail_count < USB_HOST_LIVENESS_FAIL_THRESHOLD) {
+        return;
+    }
+
+    // 连续多次真实协议层失败——判定为物理已拔出，补一次芯片复位以便重新枚举。
+    // （曾经尝试过直接在应用层重放 connection_check() 的断开状态更新来避免整片
+    // 复位，真机验证下重新插入完全无法被识别，怀疑与 PIO-USB 内部状态在 SOF
+    // 定时器 ISR 语境之外被直接篡改后不一致有关，已放弃该思路，改回可靠的重启方案）
+    usb_host_liveness_trigger_reboot();
+}
 #endif
 
 // 应在 core1 主循环（tuh_task 所在核）中周期性调用：仅在已识别到鼠标连接时，
@@ -3494,8 +3555,22 @@ static void usb_host_liveness_probe_cb(tuh_xfer_t *xfer)
 void usb_host_liveness_watchdog_task(void)
 {
 #if PIO_USB_AVAILABLE
-    if (g_xbox_mode || liveness_probe_inflight) {
+    if (g_xbox_mode) {
         return;
+    }
+
+    // 诊断兼容性修复：如果上一次探测的回调迟迟没有触发（有些情况下控制传输
+    // 卡死在协议层根本不会失败/成功回调），不能让 liveness_probe_inflight
+    // 永远卡 true——那样后面再也不会发起新探测，表现就是拔出后彻底没反应。
+    // 给一次探测设个硬上限，超时也算一次失败，保证探测节奏不会被卡死。
+    if (liveness_probe_inflight) {
+        const uint32_t now_stuck = to_ms_since_boot(get_absolute_time());
+        if ((now_stuck - liveness_probe_sent_ms) >= USB_HOST_LIVENESS_PROBE_TIMEOUT_MS) {
+            liveness_probe_inflight = false;
+            usb_host_liveness_note_fail();
+        } else {
+            return;
+        }
     }
 
     if (!connection_state.mouse_connected) {
@@ -3515,6 +3590,7 @@ void usb_host_liveness_watchdog_task(void)
     }
 
     liveness_probe_inflight = true;
+    liveness_probe_sent_ms = now;
     if (!tuh_descriptor_get_device(dev_addr, liveness_probe_buf, sizeof(liveness_probe_buf),
                                     usb_host_liveness_probe_cb, 0)) {
         // 控制端点当前忙（比如枚举流程还没走完），本轮放弃，下个周期再试

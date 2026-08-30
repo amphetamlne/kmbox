@@ -121,7 +121,7 @@ static void core1_task_loop(void) {
         tuh_task();
 
         // USB Host 运行期热插拔自愈：鼠标拔出后 R13 缺陷导致断开事件在总线电平层
-        // 面探测不到，用主动存活探测代替（规避 Waveshare 板缺陷，见 usb_hid.h 说明）
+        // 面探测不到，用主动存活探测 + 芯片复位代替（规避 Waveshare 板缺陷，见 usb_hid.h 说明）
         usb_host_liveness_watchdog_task();
 
         // Drain SET_REPORT passthrough queue (device→host vendor reports)

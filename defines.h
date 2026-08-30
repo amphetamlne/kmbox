@@ -244,18 +244,19 @@
 // USB Host 运行期热插拔自愈：
 // R13 缺陷不仅让"从未连接"卡死，同样会让"真实拔出"时的 SE0 断开检测永远不触发
 // （D+ 被 R13 强行拉高，拔掉鼠标后总线电平仍呈现类似 FS_IDLE 的假"已连接"状态）。
-// 因此 tuh_hid_umount_cb 在真实拔出时不会被调用，PIO-USB 内部 root->connected
-// 会一直卡在 true，导致重新插入也不会被识别（!root->connected 这个重连条件永远不满足）。
-// 由于断开事件在硬件层面就采不到，只能用主动探测代替被动检测：周期性对鼠标的
-// 设备地址发起一次异步控制传输（读取设备描述符），依赖 USB 协议层的真实握手/超时
-// 机制（而非总线空闲电平）判断设备是否还在。连续失败达到阈值即认为已物理拔出，
-// 补发一次等效于物理 Reset 键的芯片复位，让重新插入的设备能被正常重新枚举。
-// 该重启预算与开机自愈（USB_HOST_ENUM_RETRY_SCRATCH_IDX）使用不同的 scratch 槽位，
-// 避免互相占用彼此的重试次数。
+// 因此 tuh_hid_umount_cb 在真实拔出时不会被调用。由于断开事件在硬件层面就采不到，
+// 只能用主动探测代替被动检测：周期性对鼠标的设备地址发起一次异步控制传输（读取
+// 设备描述符），依赖 USB 协议层的真实握手/超时机制（而非总线空闲电平）判断设备
+// 是否还在。连续失败达到阈值即认为已物理拔出，补一次芯片复位以便重新枚举。
+// （曾尝试过不复位、直接在应用层重放 Pico-PIO-USB 内部 connection_check() 断开
+// 分支的状态更新，真机验证下会导致后续插入完全无法被识别，已放弃，改回复位方案）
+// 复位预算给得足够大，正常使用中不会被打到。
 #define USB_HOST_LIVENESS_PROBE_INTERVAL_MS   2000    // 存活探测周期
+#define USB_HOST_LIVENESS_PROBE_TIMEOUT_MS    500     // 单次探测控制传输的硬超时（回调迟迟不触发也算一次失败，避免卡死）
 #define USB_HOST_LIVENESS_FAIL_THRESHOLD      3       // 连续探测失败几次判定为物理断开
-#define USB_HOST_LIVENESS_MAX_AUTO_REBOOTS    5       // 每次断电周期内，运行期热插拔自愈最多重启次数（防止硬件真故障时无限重启）
+#define USB_HOST_LIVENESS_MAX_AUTO_REBOOTS    2000    // 运行期最多自动补发这么多次复位（足够大，日常使用不会耗尽）
 #define USB_HOST_LIVENESS_RETRY_SCRATCH_IDX   7       // watchdog_hw->scratch[] 索引（与开机自愈的 [6] 区分）
+#define USB_HOST_LIVENESS_REBOOT_COOLDOWN_MS  3000    // 同一次断开的多条回调路径/总线噪声反复触发时，最多每隔这么久真正复位一次，避免复位风暴
 
 // USB descriptor configuration
 #define MAX_DEVICE_HID_INTERFACES       4       // Max HID interfaces to mirror (matches CFG_TUD_HID)
