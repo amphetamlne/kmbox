@@ -3441,9 +3441,21 @@ void usb_host_enum_watchdog_task(void)
         return;
     }
 
-    if (mounted_hid_itf_count > 0) {
-        // 本次开机枚举成功：清空重试计数，下次断电重启重新获得完整预算
+    // 默认成功判定："随便哪个 HID 接口挂载上了就算数"——适用于真正的开机冷启动
+    // 自愈场景（此时还没有任何设备，插上任意一个都说明总线恢复正常）。但如果这
+    // 次复位是运行期热插拔自愈专门为了等鼠标重新出现而触发的（见
+    // usb_host_liveness_trigger_reboot），且鼠标和键盘是分别独立枚举的（例如经过
+    // Hub），键盘可能先于鼠标重新挂载——不能让这个通用判定提前满足、放弃继续等待，
+    // 否则会一直卡在"键盘已连接、鼠标却再也等不到"的状态。
+    const uint32_t recovery_target = watchdog_hw->scratch[USB_HOST_RECOVERY_TARGET_SCRATCH_IDX];
+    const bool enum_succeeded = (recovery_target == USB_HOST_RECOVERY_TARGET_MOUSE)
+                                     ? is_mouse_connected()
+                                     : (mounted_hid_itf_count > 0);
+
+    if (enum_succeeded) {
+        // 本次开机枚举成功：清空重试计数与恢复目标标记，下次断电重启重新获得完整预算
         watchdog_hw->scratch[USB_HOST_ENUM_RETRY_SCRATCH_IDX] = 0;
+        watchdog_hw->scratch[USB_HOST_RECOVERY_TARGET_SCRATCH_IDX] = USB_HOST_RECOVERY_TARGET_NONE;
         done_for_this_boot = true;
         return;
     }
@@ -3457,7 +3469,9 @@ void usb_host_enum_watchdog_task(void)
 
     const uint32_t reboot_count = watchdog_hw->scratch[USB_HOST_ENUM_RETRY_SCRATCH_IDX];
     if (reboot_count >= USB_HOST_ENUM_MAX_AUTO_REBOOTS) {
-        // 已用完自动重试预算——很可能本来就没有插设备，放弃自愈以避免重启循环
+        // 已用完自动重试预算——很可能本来就没有插设备，放弃自愈以避免重启循环；
+        // 同时清掉恢复目标标记，避免残留状态影响下一次真正的冷启动判定
+        watchdog_hw->scratch[USB_HOST_RECOVERY_TARGET_SCRATCH_IDX] = USB_HOST_RECOVERY_TARGET_NONE;
         return;
     }
 
@@ -3512,6 +3526,11 @@ static void usb_host_liveness_trigger_reboot(void)
     }
 
     watchdog_hw->scratch[USB_HOST_LIVENESS_RETRY_SCRATCH_IDX] = reboot_count + 1;
+    // 标记这次复位是专门为了等鼠标重新出现——如果板子上鼠标和键盘是分别独立
+    // 枚举的（例如经过 Hub），键盘可能在重启后先恢复挂载，不能让开机枚举自愈
+    // 看到"随便哪个 HID 设备"就提前放弃重试（否则会一直卡在"键盘已连接、鼠标
+    // 没等到"的状态，见 usb_host_enum_watchdog_task）。
+    watchdog_hw->scratch[USB_HOST_RECOVERY_TARGET_SCRATCH_IDX] = USB_HOST_RECOVERY_TARGET_MOUSE;
     watchdog_reboot(0, 0, 10);
 }
 
