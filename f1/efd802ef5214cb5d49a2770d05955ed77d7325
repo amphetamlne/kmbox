@@ -1,0 +1,14 @@
+tools/build_kmbox_windows.ps1
+  h_fc70e22ca6c685 2,4-6,8,10-12,40-122,127-137,139-150
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "f1efd802ef5214cb5d49a2770d05955ed77d7325",
+  "prompts": {},
+  "humans": {
+    "h_fc70e22ca6c685": {
+      "author": "龙超 <longchao@onerobot.com>"
+    }
+  }
+}
