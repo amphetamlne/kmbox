@@ -3,7 +3,6 @@
   <component name="VcsDirectoryMappings">
     <mapping directory="" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/build-muluoxing/_deps/picotool-src" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/build-verify/_deps/picotool-src" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/build-waveshare/_deps/picotool-src" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/lib/Pico-PIO-USB" vcs="Git" />
   </component>
